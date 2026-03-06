@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	_ "github.com/jackc/pgx/v5/stdlib" // ← этот импорт регистрирует драйвер "pgx"
+
 	"github.com/pressly/goose"
 )
 

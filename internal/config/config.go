@@ -5,6 +5,13 @@ import "os"
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	JWT      JWTConfig
+}
+
+type JWTConfig struct {
+	Secret      string
+	ExpireHours int
+	RefreshDays int
 }
 
 type ServerConfig struct {
@@ -21,25 +28,30 @@ type DatabaseConfig struct {
 
 func (d DatabaseConfig) DSN() string {
 	return "host=" + d.Host +
-		"port=" + d.Port +
-		"user=" + d.User +
-		"password=" + d.Password +
-		"dbname=" + d.DBName +
-		"sslmode=" + d.SSLMode
+		" port=" + d.Port +
+		" user=" + d.User +
+		" password=" + d.Password +
+		" dbname=" + d.DBName +
+		" sslmode=" + d.SSLMode
 }
 
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port: getEnv("SERVER_PORT", "8080"),
+			Port: getEnv("SERVER_PORT", ""),
 		},
 		Database: DatabaseConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnv("DB_PORT", "5432"),
-			User:     getEnv("DB_USER", "messenger_user"),
-			Password: getEnv("DB_PASSWORD", "secret123"),
-			DBName:   getEnv("DB_NAME", "messenger"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+			Host:     getEnv("DB_HOST", ""),
+			Port:     getEnv("DB_PORT", ""),
+			User:     getEnv("DB_USER", ""),
+			Password: getEnv("DB_PASSWORD", ""),
+			DBName:   getEnv("DB_NAME", ""),
+			SSLMode:  getEnv("DB_SSLMODE", ""),
+		},
+		JWT: JWTConfig{
+			Secret:      getEnv("JWT_SECRET", ""),
+			ExpireHours: 24,
+			RefreshDays: 30,
 		},
 	}
 }
