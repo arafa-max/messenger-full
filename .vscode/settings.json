@@ -1,0 +1,16 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "askForPassword": true,
+            "driver": "PostgreSQL",
+            "database": "messenger",
+            "username": "messenger_user",
+            "name": "Local Postgres",
+            "group": "PostgreSQL / node-pg"
+        }
+    ]
+}
