@@ -16,7 +16,7 @@ type DB struct {
 func New(dsn string) (*DB, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing DSN: %w", err)
+		return nil, fmt.Errorf("parse DSN: %w", err)
 	}
 	cfg.MaxConns = 25
 	cfg.MinConns = 5
@@ -28,18 +28,18 @@ func New(dsn string) (*DB, error) {
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("❌ error created pool: %w", err)
+		return nil, fmt.Errorf("created pool: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("❌ failed connected to BD: %w", err)
+		return nil, fmt.Errorf("ping db: %w", err)
 	}
-	log.Println("✅ connect to PostreSQL succesfull!")
+	log.Println("✅ PostreSQL connected!")
 	return &DB{Pool: pool}, nil
 }
 
 func (db *DB) Close() {
 	db.Pool.Close()
-	log.Println("🔌 connected with PostreSQL closed")
+	log.Println("🔒 PostreSQL connection closed")
 }
 
 func (db *DB) Ping(ctx context.Context) error {

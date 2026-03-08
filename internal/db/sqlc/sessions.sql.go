@@ -15,7 +15,7 @@ import (
 
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions(user_id,device_id,refresh_token,ip_address,expires_at)
-VALUES ($1,$2,$3,$4,$5) RETURNING id, user_id, device_id, refresh_token, ip_address, expires_at, created_at
+VALUES ($1,$2,$3,$4,$5) RETURNING id, user_id, device_id, refresh_token, ip_address, expires_at, created_at, user_agent, fingerprint, revoked_at
 `
 
 type CreateSessionParams struct {
@@ -43,6 +43,9 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.IpAddress,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.UserAgent,
+		&i.Fingerprint,
+		&i.RevokedAt,
 	)
 	return i, err
 }
@@ -66,7 +69,7 @@ func (q *Queries) DeleteSession(ctx context.Context, refreshToken string) error 
 }
 
 const getSessionByToken = `-- name: GetSessionByToken :one
-SELECT id, user_id, device_id, refresh_token, ip_address, expires_at, created_atFROM sessions WHERE refresh_token=$1 AND expires_at>NOW()
+SELECT * FROM sessions WHERE refresh_token=$1 AND expires_at>NOW()
 `
 
 func (q *Queries) GetSessionByToken(ctx context.Context, refreshToken string) (Session, error) {
@@ -80,6 +83,9 @@ func (q *Queries) GetSessionByToken(ctx context.Context, refreshToken string) (S
 		&i.IpAddress,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.UserAgent,
+		&i.Fingerprint,
+		&i.RevokedAt,
 	)
 	return i, err
 }

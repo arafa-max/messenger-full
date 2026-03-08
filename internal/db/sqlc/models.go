@@ -216,13 +216,16 @@ type Reaction struct {
 }
 
 type Session struct {
-	ID           uuid.UUID     `json:"id"`
-	UserID       uuid.UUID     `json:"user_id"`
-	DeviceID     uuid.NullUUID `json:"device_id"`
-	RefreshToken string        `json:"refresh_token"`
-	IpAddress    pqtype.Inet   `json:"ip_address"`
-	ExpiresAt    time.Time     `json:"expires_at"`
-	CreatedAt    sql.NullTime  `json:"created_at"`
+	ID           uuid.UUID      `json:"id"`
+	UserID       uuid.UUID      `json:"user_id"`
+	DeviceID     uuid.NullUUID  `json:"device_id"`
+	RefreshToken string         `json:"refresh_token"`
+	IpAddress    pqtype.Inet    `json:"ip_address"`
+	ExpiresAt    time.Time      `json:"expires_at"`
+	CreatedAt    sql.NullTime   `json:"created_at"`
+	UserAgent    sql.NullString `json:"user_agent"`
+	Fingerprint  sql.NullString `json:"fingerprint"`
+	RevokedAt    sql.NullTime   `json:"revoked_at"`
 }
 
 type Sticker struct {
