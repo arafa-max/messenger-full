@@ -1,2 +1,39 @@
+# Environment
 .env
-target
+.env.local
+.env.*.local
+
+# Build
+target/
+bin/
+dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# MinIO data
+minio-data/
+C:/minio-data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Swagger (генерируется автоматически)
+docs/
+
+# OS
+.DS_Store
+Thumbs.db
