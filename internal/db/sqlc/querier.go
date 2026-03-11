@@ -13,25 +13,43 @@ import (
 
 type Querier interface {
 	AddChatMember(ctx context.Context, arg AddChatMemberParams) error
+	AddReaction(ctx context.Context, arg AddReactionParams) error
 	CreateChat(ctx context.Context, arg CreateChatParams) (Chat, error)
 	CreateDevice(ctx context.Context, arg CreateDeviceParams) (Device, error)
+	CreateMedia(ctx context.Context, arg CreateMediaParams) (Medium, error)
 	CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error)
 	CreateMessageStatus(ctx context.Context, arg CreateMessageStatusParams) error
+	CreateQuickReply(ctx context.Context, arg CreateQuickReplyParams) (QuickReply, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeactivateDevice(ctx context.Context, id uuid.UUID) error
 	DeleteAllUserSessions(ctx context.Context, userID uuid.UUID) error
+	DeleteChat(ctx context.Context, id uuid.UUID) error
 	DeleteDevice(ctx context.Context, id uuid.UUID) error
+	DeleteExpiredMessages(ctx context.Context) error
+	DeleteMedia(ctx context.Context, id uuid.UUID) error
 	DeleteMessageForAll(ctx context.Context, id uuid.UUID) error
+	DeleteMessageForMe(ctx context.Context, arg DeleteMessageForMeParams) error
+	DeleteQuickReply(ctx context.Context, arg DeleteQuickReplyParams) error
 	DeleteSession(ctx context.Context, refreshToken string) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
 	EditMessage(ctx context.Context, arg EditMessageParams) (Message, error)
+	ForwardMessage(ctx context.Context, arg ForwardMessageParams) (Message, error)
 	GetChatByID(ctx context.Context, id uuid.UUID) (Chat, error)
+	GetChatMember(ctx context.Context, arg GetChatMemberParams) (ChatMember, error)
 	GetChatMembers(ctx context.Context, chatID uuid.UUID) ([]ChatMember, error)
 	GetChatMessages(ctx context.Context, arg GetChatMessagesParams) ([]Message, error)
 	GetDeviceByID(ctx context.Context, id uuid.UUID) (Device, error)
+	GetMedia(ctx context.Context, id uuid.UUID) (Medium, error)
 	GetMessageByID(ctx context.Context, id uuid.UUID) (Message, error)
+	GetMessageReactions(ctx context.Context, messageID uuid.UUID) ([]GetMessageReactionsRow, error)
+	GetPendingExpiredMedia(ctx context.Context) ([]Medium, error)
+	GetPendingReminders(ctx context.Context) ([]MessageReminder, error)
 	GetPinnedMessages(ctx context.Context, chatID uuid.UUID) ([]Message, error)
+	GetPrivateChatBetweenUsers(ctx context.Context, arg GetPrivateChatBetweenUsersParams) (Chat, error)
+	GetQuickReplies(ctx context.Context, userID uuid.UUID) ([]QuickReply, error)
+	GetSavedMessages(ctx context.Context, arg GetSavedMessagesParams) ([]Message, error)
+	GetScheduledMessages(ctx context.Context) ([]Message, error)
 	GetSessionByToken(ctx context.Context, refreshToken string) (Session, error)
 	GetUserByEmail(ctx context.Context, email sql.NullString) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
@@ -39,10 +57,23 @@ type Querier interface {
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserChats(ctx context.Context, userID uuid.UUID) ([]Chat, error)
 	GetUserDevices(ctx context.Context, userID uuid.UUID) (Device, error)
+	GetUserReaction(ctx context.Context, arg GetUserReactionParams) (string, error)
+	MarkChatMessagesRead(ctx context.Context, arg MarkChatMessagesReadParams) error
+	MarkReminderSent(ctx context.Context, id uuid.UUID) error
 	PinMessage(ctx context.Context, id uuid.UUID) error
 	RemoveChatMember(ctx context.Context, arg RemoveChatMemberParams) error
+	RemoveReaction(ctx context.Context, arg RemoveReactionParams) error
+	SaveMessage(ctx context.Context, arg SaveMessageParams) error
+	SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]Message, error)
+	SendScheduledMessage(ctx context.Context, id uuid.UUID) error
+	SetMessageReminder(ctx context.Context, arg SetMessageReminderParams) (MessageReminder, error)
+	UnpinMessage(ctx context.Context, id uuid.UUID) error
+	UnsaveMessage(ctx context.Context, arg UnsaveMessageParams) error
 	UpdateChatMemberRole(ctx context.Context, arg UpdateChatMemberRoleParams) error
+	UpdateChatUpdatedAt(ctx context.Context, id uuid.UUID) error
 	UpdateDevicePushToken(ctx context.Context, arg UpdateDevicePushTokenParams) error
+	UpdateMediaStatus(ctx context.Context, arg UpdateMediaStatusParams) (Medium, error)
+	UpdateMediaUploaded(ctx context.Context, arg UpdateMediaUploadedParams) (Medium, error)
 	UpdateMessageDelivered(ctx context.Context, arg UpdateMessageDeliveredParams) error
 	UpdateMessageRead(ctx context.Context, arg UpdateMessageReadParams) error
 	UpdateUserOnlineStatus(ctx context.Context, arg UpdateUserOnlineStatusParams) error

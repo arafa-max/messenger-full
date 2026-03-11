@@ -11,7 +11,16 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
+	Redis    RedisConfig
+	MinIO    MinIOConfig
 	Env      string
+}
+type MinIOConfig struct {
+	Endpoint  string
+	AccessKey string
+	SecretKey string
+	Bucket    string
+	UseSSL    bool
 }
 
 type JWTConfig struct {
@@ -43,6 +52,10 @@ func (d DatabaseConfig) DSN() string {
 		" sslmode=" + d.SSLMode
 }
 
+type RedisConfig struct {
+	URL string
+}
+
 func Load() *Config {
 	_ = godotenv.Load()
 	return &Config{
@@ -65,6 +78,16 @@ func Load() *Config {
 			AccessMinutes: getEnvInt("JWT_ACCESS_MINUTES", 15),
 			RefreshDays:   getEnvInt("JWT_REFRESH_DAYS", 30),
 		},
+		Redis: RedisConfig{
+			URL: getEnv("REDIS_URL", ""),
+		},
+		MinIO: MinIOConfig{
+			Endpoint:  getEnv("MINIO_ENDPOINT", ""),
+			AccessKey: getEnv("MINIO_ACCESS_KEY", ""),
+			SecretKey: getEnv("MINIO_SECRET_KEY", ""),
+			Bucket:    getEnv("MINIO_BUCKET", ""),
+			UseSSL:    getEnvBool("MINIO_USE_SSL", false),
+		},
 	}
 }
 
@@ -79,6 +102,14 @@ func getEnvInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
+		}
+	}
+	return def
+}
+func getEnvBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return def

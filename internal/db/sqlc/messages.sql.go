@@ -8,21 +8,46 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 )
 
+const addReaction = `-- name: AddReaction :exec
+INSERT INTO reactions (message_id, user_id, emoji)
+VALUES ($1, $2, $3)
+ON CONFLICT (message_id, user_id, emoji) DO NOTHING
+`
+
+type AddReactionParams struct {
+	MessageID uuid.UUID `json:"message_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Emoji     string    `json:"emoji"`
+}
+
+func (q *Queries) AddReaction(ctx context.Context, arg AddReactionParams) error {
+	_, err := q.db.ExecContext(ctx, addReaction, arg.MessageID, arg.UserID, arg.Emoji)
+	return err
+}
+
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO messages(chat_id,sender_id,type,content,reply_to_id)
-VALUES ($1,$2,$3,$4,$5) RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata
+INSERT INTO messages(chat_id, sender_id, type, content, reply_to_id, format, is_spoiler, scheduled_at, expires_at, topic_id,media_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11)
+RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id
 `
 
 type CreateMessageParams struct {
-	ChatID    uuid.UUID      `json:"chat_id"`
-	SenderID  uuid.UUID      `json:"sender_id"`
-	Type      sql.NullString `json:"type"`
-	Content   sql.NullString `json:"content"`
-	ReplyToID uuid.NullUUID  `json:"reply_to_id"`
+	ChatID      uuid.UUID      `json:"chat_id"`
+	SenderID    uuid.UUID      `json:"sender_id"`
+	Type        sql.NullString `json:"type"`
+	Content     string         `json:"content"`
+	ReplyToID   uuid.NullUUID  `json:"reply_to_id"`
+	Format      sql.NullString `json:"format"`
+	IsSpoiler   sql.NullBool   `json:"is_spoiler"`
+	ScheduledAt sql.NullTime   `json:"scheduled_at"`
+	ExpiresAt   sql.NullTime   `json:"expires_at"`
+	TopicID     uuid.NullUUID  `json:"topic_id"`
+	MediaID     uuid.NullUUID  `json:"media_id"`
 }
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error) {
@@ -32,6 +57,12 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		arg.Type,
 		arg.Content,
 		arg.ReplyToID,
+		arg.Format,
+		arg.IsSpoiler,
+		arg.ScheduledAt,
+		arg.ExpiresAt,
+		arg.TopicID,
+		arg.MediaID,
 	)
 	var i Message
 	err := row.Scan(
@@ -53,12 +84,24 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TopicID,
+		&i.Format,
+		&i.IsSpoiler,
+		&i.QuotedText,
+		&i.QuotedOffset,
+		&i.QuotedLength,
+		&i.ForwardSenderID,
+		&i.ForwardChatID,
+		&i.ForwardDate,
+		&i.MediaID,
 	)
 	return i, err
 }
 
 const createMessageStatus = `-- name: CreateMessageStatus :exec
-INSERT INTO message_status (message_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING
+INSERT INTO message_status (message_id, user_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
 `
 
 type CreateMessageStatusParams struct {
@@ -71,8 +114,49 @@ func (q *Queries) CreateMessageStatus(ctx context.Context, arg CreateMessageStat
 	return err
 }
 
+const createQuickReply = `-- name: CreateQuickReply :one
+INSERT INTO quick_replies (user_id, shortcut, text)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, shortcut)
+DO UPDATE SET text = EXCLUDED.text
+RETURNING id, user_id, shortcut, text, created_at
+`
+
+type CreateQuickReplyParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	Shortcut string    `json:"shortcut"`
+	Text     string    `json:"text"`
+}
+
+func (q *Queries) CreateQuickReply(ctx context.Context, arg CreateQuickReplyParams) (QuickReply, error) {
+	row := q.db.QueryRowContext(ctx, createQuickReply, arg.UserID, arg.Shortcut, arg.Text)
+	var i QuickReply
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Shortcut,
+		&i.Text,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const deleteExpiredMessages = `-- name: DeleteExpiredMessages :exec
+UPDATE messages
+SET is_deleted = TRUE, updated_at = NOW()
+WHERE expires_at IS NOT NULL
+  AND expires_at <= NOW()
+  AND is_deleted = FALSE
+`
+
+func (q *Queries) DeleteExpiredMessages(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredMessages)
+	return err
+}
+
 const deleteMessageForAll = `-- name: DeleteMessageForAll :exec
-UPDATE messages SET is_deleted =TRUE WHERE id =$1
+UPDATE messages SET is_deleted = TRUE, updated_at = NOW()
+WHERE id = $1
 `
 
 func (q *Queries) DeleteMessageForAll(ctx context.Context, id uuid.UUID) error {
@@ -80,18 +164,50 @@ func (q *Queries) DeleteMessageForAll(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const deleteMessageForMe = `-- name: DeleteMessageForMe :exec
+INSERT INTO deleted_messages (message_id, user_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type DeleteMessageForMeParams struct {
+	MessageID uuid.UUID `json:"message_id"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteMessageForMe(ctx context.Context, arg DeleteMessageForMeParams) error {
+	_, err := q.db.ExecContext(ctx, deleteMessageForMe, arg.MessageID, arg.UserID)
+	return err
+}
+
+const deleteQuickReply = `-- name: DeleteQuickReply :exec
+DELETE FROM quick_replies WHERE id = $1 AND user_id = $2
+`
+
+type DeleteQuickReplyParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteQuickReply(ctx context.Context, arg DeleteQuickReplyParams) error {
+	_, err := q.db.ExecContext(ctx, deleteQuickReply, arg.ID, arg.UserID)
+	return err
+}
+
 const editMessage = `-- name: EditMessage :one
-UPDATE messages SET content =$2,is_edited = TRUE, updated_at=NOW()
-WHERE id=$1 RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata
+UPDATE messages SET content = $2, format = $3, is_edited = TRUE, updated_at = NOW()
+WHERE id = $1
+RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id
 `
 
 type EditMessageParams struct {
 	ID      uuid.UUID      `json:"id"`
-	Content sql.NullString `json:"content"`
+	Content string         `json:"content"`
+	Format  sql.NullString `json:"format"`
 }
 
 func (q *Queries) EditMessage(ctx context.Context, arg EditMessageParams) (Message, error) {
-	row := q.db.QueryRowContext(ctx, editMessage, arg.ID, arg.Content)
+	row := q.db.QueryRowContext(ctx, editMessage, arg.ID, arg.Content, arg.Format)
 	var i Message
 	err := row.Scan(
 		&i.ID,
@@ -112,23 +228,97 @@ func (q *Queries) EditMessage(ctx context.Context, arg EditMessageParams) (Messa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TopicID,
+		&i.Format,
+		&i.IsSpoiler,
+		&i.QuotedText,
+		&i.QuotedOffset,
+		&i.QuotedLength,
+		&i.ForwardSenderID,
+		&i.ForwardChatID,
+		&i.ForwardDate,
+		&i.MediaID,
+	)
+	return i, err
+}
+
+const forwardMessage = `-- name: ForwardMessage :one
+INSERT INTO messages (
+    chat_id, sender_id, type, content, format,
+    forwarded_from_id, forward_sender_id, forward_chat_id, forward_date
+)
+SELECT $2, $3, src.type, src.content, src.format, src.id, src.sender_id, src.chat_id, src.created_at
+FROM messages src WHERE src.id = $1
+RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id
+`
+
+type ForwardMessageParams struct {
+	ID       uuid.UUID `json:"id"`
+	ChatID   uuid.UUID `json:"chat_id"`
+	SenderID uuid.UUID `json:"sender_id"`
+}
+
+func (q *Queries) ForwardMessage(ctx context.Context, arg ForwardMessageParams) (Message, error) {
+	row := q.db.QueryRowContext(ctx, forwardMessage, arg.ID, arg.ChatID, arg.SenderID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChatID,
+		&i.SenderID,
+		&i.ReplyToID,
+		&i.ThreadID,
+		&i.ForwardedFromID,
+		&i.Type,
+		&i.Content,
+		&i.IsEncrypted,
+		&i.IsEdited,
+		&i.IsDeleted,
+		&i.IsPinned,
+		&i.ScheduledAt,
+		&i.ExpiresAt,
+		&i.ViewsCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Metadata,
+		&i.TopicID,
+		&i.Format,
+		&i.IsSpoiler,
+		&i.QuotedText,
+		&i.QuotedOffset,
+		&i.QuotedLength,
+		&i.ForwardSenderID,
+		&i.ForwardChatID,
+		&i.ForwardDate,
+		&i.MediaID,
 	)
 	return i, err
 }
 
 const getChatMessages = `-- name: GetChatMessages :many
-SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata FROM messages WHERE chat_id =$1 AND is_deleted =FALSE
-ORDER BY created_at DESC LIMIT $2 OFFSET $3
+SELECT m.id, m.chat_id, m.sender_id, m.reply_to_id, m.thread_id, m.forwarded_from_id, m.type, m.content, m.is_encrypted, m.is_edited, m.is_deleted, m.is_pinned, m.scheduled_at, m.expires_at, m.views_count, m.created_at, m.updated_at, m.metadata, m.topic_id, m.format, m.is_spoiler, m.quoted_text, m.quoted_offset, m.quoted_length, m.forward_sender_id, m.forward_chat_id, m.forward_date, m.media_id FROM messages m
+LEFT JOIN deleted_messages dm ON dm.message_id = m.id AND dm.user_id = $4
+WHERE m.chat_id = $1
+  AND m.is_deleted = FALSE
+  AND m.scheduled_at IS NULL
+  AND dm.message_id IS NULL
+ORDER BY m.created_at DESC
+LIMIT $2 OFFSET $3
 `
 
 type GetChatMessagesParams struct {
 	ChatID uuid.UUID `json:"chat_id"`
 	Limit  int32     `json:"limit"`
 	Offset int32     `json:"offset"`
+	UserID uuid.UUID `json:"user_id"`
 }
 
 func (q *Queries) GetChatMessages(ctx context.Context, arg GetChatMessagesParams) ([]Message, error) {
-	rows, err := q.db.QueryContext(ctx, getChatMessages, arg.ChatID, arg.Limit, arg.Offset)
+	rows, err := q.db.QueryContext(ctx, getChatMessages,
+		arg.ChatID,
+		arg.Limit,
+		arg.Offset,
+		arg.UserID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +345,16 @@ func (q *Queries) GetChatMessages(ctx context.Context, arg GetChatMessagesParams
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Metadata,
+			&i.TopicID,
+			&i.Format,
+			&i.IsSpoiler,
+			&i.QuotedText,
+			&i.QuotedOffset,
+			&i.QuotedLength,
+			&i.ForwardSenderID,
+			&i.ForwardChatID,
+			&i.ForwardDate,
+			&i.MediaID,
 		); err != nil {
 			return nil, err
 		}
@@ -170,7 +370,7 @@ func (q *Queries) GetChatMessages(ctx context.Context, arg GetChatMessagesParams
 }
 
 const getMessageByID = `-- name: GetMessageByID :one
-SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata FROM messages WHERE id=$1 AND is_deleted = FALSE
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages WHERE id = $1 AND is_deleted = FALSE
 `
 
 func (q *Queries) GetMessageByID(ctx context.Context, id uuid.UUID) (Message, error) {
@@ -195,12 +395,95 @@ func (q *Queries) GetMessageByID(ctx context.Context, id uuid.UUID) (Message, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TopicID,
+		&i.Format,
+		&i.IsSpoiler,
+		&i.QuotedText,
+		&i.QuotedOffset,
+		&i.QuotedLength,
+		&i.ForwardSenderID,
+		&i.ForwardChatID,
+		&i.ForwardDate,
+		&i.MediaID,
 	)
 	return i, err
 }
 
+const getMessageReactions = `-- name: GetMessageReactions :many
+SELECT emoji, COUNT(*) as count
+FROM reactions
+WHERE message_id = $1
+GROUP BY emoji
+ORDER BY count DESC
+`
+
+type GetMessageReactionsRow struct {
+	Emoji string `json:"emoji"`
+	Count int64  `json:"count"`
+}
+
+func (q *Queries) GetMessageReactions(ctx context.Context, messageID uuid.UUID) ([]GetMessageReactionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getMessageReactions, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMessageReactionsRow
+	for rows.Next() {
+		var i GetMessageReactionsRow
+		if err := rows.Scan(&i.Emoji, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPendingReminders = `-- name: GetPendingReminders :many
+SELECT id, user_id, message_id, remind_at, is_sent, created_at FROM message_reminders
+WHERE remind_at <= NOW() AND is_sent = FALSE
+`
+
+func (q *Queries) GetPendingReminders(ctx context.Context) ([]MessageReminder, error) {
+	rows, err := q.db.QueryContext(ctx, getPendingReminders)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageReminder
+	for rows.Next() {
+		var i MessageReminder
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.MessageID,
+			&i.RemindAt,
+			&i.IsSent,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPinnedMessages = `-- name: GetPinnedMessages :many
-SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata FROM messages WHERE chat_id =$1 AND is_pinned =TRUE AND is_deleted =FALSE
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages
+WHERE chat_id = $1 AND is_pinned = TRUE AND is_deleted = FALSE
+ORDER BY updated_at DESC
 `
 
 func (q *Queries) GetPinnedMessages(ctx context.Context, chatID uuid.UUID) ([]Message, error) {
@@ -231,6 +514,16 @@ func (q *Queries) GetPinnedMessages(ctx context.Context, chatID uuid.UUID) ([]Me
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Metadata,
+			&i.TopicID,
+			&i.Format,
+			&i.IsSpoiler,
+			&i.QuotedText,
+			&i.QuotedOffset,
+			&i.QuotedLength,
+			&i.ForwardSenderID,
+			&i.ForwardChatID,
+			&i.ForwardDate,
+			&i.MediaID,
 		); err != nil {
 			return nil, err
 		}
@@ -245,8 +538,215 @@ func (q *Queries) GetPinnedMessages(ctx context.Context, chatID uuid.UUID) ([]Me
 	return items, nil
 }
 
+const getQuickReplies = `-- name: GetQuickReplies :many
+SELECT id, user_id, shortcut, text, created_at FROM quick_replies
+WHERE user_id = $1
+ORDER BY shortcut
+`
+
+func (q *Queries) GetQuickReplies(ctx context.Context, userID uuid.UUID) ([]QuickReply, error) {
+	rows, err := q.db.QueryContext(ctx, getQuickReplies, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QuickReply
+	for rows.Next() {
+		var i QuickReply
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Shortcut,
+			&i.Text,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSavedMessages = `-- name: GetSavedMessages :many
+SELECT m.id, m.chat_id, m.sender_id, m.reply_to_id, m.thread_id, m.forwarded_from_id, m.type, m.content, m.is_encrypted, m.is_edited, m.is_deleted, m.is_pinned, m.scheduled_at, m.expires_at, m.views_count, m.created_at, m.updated_at, m.metadata, m.topic_id, m.format, m.is_spoiler, m.quoted_text, m.quoted_offset, m.quoted_length, m.forward_sender_id, m.forward_chat_id, m.forward_date, m.media_id FROM messages m
+JOIN saved_messages sm ON sm.message_id = m.id
+WHERE sm.user_id = $1 AND m.is_deleted = FALSE
+ORDER BY sm.saved_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetSavedMessagesParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Limit  int32     `json:"limit"`
+	Offset int32     `json:"offset"`
+}
+
+func (q *Queries) GetSavedMessages(ctx context.Context, arg GetSavedMessagesParams) ([]Message, error) {
+	rows, err := q.db.QueryContext(ctx, getSavedMessages, arg.UserID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.SenderID,
+			&i.ReplyToID,
+			&i.ThreadID,
+			&i.ForwardedFromID,
+			&i.Type,
+			&i.Content,
+			&i.IsEncrypted,
+			&i.IsEdited,
+			&i.IsDeleted,
+			&i.IsPinned,
+			&i.ScheduledAt,
+			&i.ExpiresAt,
+			&i.ViewsCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Metadata,
+			&i.TopicID,
+			&i.Format,
+			&i.IsSpoiler,
+			&i.QuotedText,
+			&i.QuotedOffset,
+			&i.QuotedLength,
+			&i.ForwardSenderID,
+			&i.ForwardChatID,
+			&i.ForwardDate,
+			&i.MediaID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getScheduledMessages = `-- name: GetScheduledMessages :many
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages
+WHERE scheduled_at <= NOW()
+  AND scheduled_at IS NOT NULL
+  AND is_deleted = FALSE
+`
+
+func (q *Queries) GetScheduledMessages(ctx context.Context) ([]Message, error) {
+	rows, err := q.db.QueryContext(ctx, getScheduledMessages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.SenderID,
+			&i.ReplyToID,
+			&i.ThreadID,
+			&i.ForwardedFromID,
+			&i.Type,
+			&i.Content,
+			&i.IsEncrypted,
+			&i.IsEdited,
+			&i.IsDeleted,
+			&i.IsPinned,
+			&i.ScheduledAt,
+			&i.ExpiresAt,
+			&i.ViewsCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Metadata,
+			&i.TopicID,
+			&i.Format,
+			&i.IsSpoiler,
+			&i.QuotedText,
+			&i.QuotedOffset,
+			&i.QuotedLength,
+			&i.ForwardSenderID,
+			&i.ForwardChatID,
+			&i.ForwardDate,
+			&i.MediaID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUserReaction = `-- name: GetUserReaction :one
+SELECT emoji FROM reactions
+WHERE message_id = $1 AND user_id = $2 AND emoji = $3
+`
+
+type GetUserReactionParams struct {
+	MessageID uuid.UUID `json:"message_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Emoji     string    `json:"emoji"`
+}
+
+func (q *Queries) GetUserReaction(ctx context.Context, arg GetUserReactionParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getUserReaction, arg.MessageID, arg.UserID, arg.Emoji)
+	var emoji string
+	err := row.Scan(&emoji)
+	return emoji, err
+}
+
+const markChatMessagesRead = `-- name: MarkChatMessagesRead :exec
+UPDATE message_status ms
+SET read = TRUE, read_at = NOW()
+FROM messages m
+WHERE ms.message_id = m.id
+  AND m.chat_id = $1
+  AND ms.user_id = $2
+  AND ms.read = FALSE
+`
+
+type MarkChatMessagesReadParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) MarkChatMessagesRead(ctx context.Context, arg MarkChatMessagesReadParams) error {
+	_, err := q.db.ExecContext(ctx, markChatMessagesRead, arg.ChatID, arg.UserID)
+	return err
+}
+
+const markReminderSent = `-- name: MarkReminderSent :exec
+UPDATE message_reminders SET is_sent = TRUE WHERE id = $1
+`
+
+func (q *Queries) MarkReminderSent(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, markReminderSent, id)
+	return err
+}
+
 const pinMessage = `-- name: PinMessage :exec
-UPDATE messages SET is_pinned = TRUE WHERE id =$1
+UPDATE messages SET is_pinned = TRUE WHERE id = $1
 `
 
 func (q *Queries) PinMessage(ctx context.Context, id uuid.UUID) error {
@@ -254,8 +754,178 @@ func (q *Queries) PinMessage(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const removeReaction = `-- name: RemoveReaction :exec
+DELETE FROM reactions
+WHERE message_id = $1 AND user_id = $2 AND emoji = $3
+`
+
+type RemoveReactionParams struct {
+	MessageID uuid.UUID `json:"message_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Emoji     string    `json:"emoji"`
+}
+
+func (q *Queries) RemoveReaction(ctx context.Context, arg RemoveReactionParams) error {
+	_, err := q.db.ExecContext(ctx, removeReaction, arg.MessageID, arg.UserID, arg.Emoji)
+	return err
+}
+
+const saveMessage = `-- name: SaveMessage :exec
+INSERT INTO saved_messages (user_id, message_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type SaveMessageParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	MessageID uuid.UUID `json:"message_id"`
+}
+
+func (q *Queries) SaveMessage(ctx context.Context, arg SaveMessageParams) error {
+	_, err := q.db.ExecContext(ctx, saveMessage, arg.UserID, arg.MessageID)
+	return err
+}
+
+const searchMessages = `-- name: SearchMessages :many
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages
+WHERE chat_id = $1
+  AND is_deleted = FALSE
+  AND content ILIKE '%' || $2::text || '%'
+ORDER BY created_at DESC
+LIMIT $4 OFFSET $3
+`
+
+type SearchMessagesParams struct {
+	ChatID     uuid.UUID `json:"chat_id"`
+	Query      string    `json:"query"`
+	PageOffset int32     `json:"page_offset"`
+	PageSize   int32     `json:"page_size"`
+}
+
+func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]Message, error) {
+	rows, err := q.db.QueryContext(ctx, searchMessages,
+		arg.ChatID,
+		arg.Query,
+		arg.PageOffset,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.SenderID,
+			&i.ReplyToID,
+			&i.ThreadID,
+			&i.ForwardedFromID,
+			&i.Type,
+			&i.Content,
+			&i.IsEncrypted,
+			&i.IsEdited,
+			&i.IsDeleted,
+			&i.IsPinned,
+			&i.ScheduledAt,
+			&i.ExpiresAt,
+			&i.ViewsCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Metadata,
+			&i.TopicID,
+			&i.Format,
+			&i.IsSpoiler,
+			&i.QuotedText,
+			&i.QuotedOffset,
+			&i.QuotedLength,
+			&i.ForwardSenderID,
+			&i.ForwardChatID,
+			&i.ForwardDate,
+			&i.MediaID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sendScheduledMessage = `-- name: SendScheduledMessage :exec
+UPDATE messages
+SET scheduled_at = NULL, created_at = NOW(), updated_at = NOW()
+WHERE id = $1
+`
+
+func (q *Queries) SendScheduledMessage(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, sendScheduledMessage, id)
+	return err
+}
+
+const setMessageReminder = `-- name: SetMessageReminder :one
+INSERT INTO message_reminders (user_id, message_id, remind_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, message_id)
+DO UPDATE SET remind_at = EXCLUDED.remind_at, is_sent = FALSE
+RETURNING id, user_id, message_id, remind_at, is_sent, created_at
+`
+
+type SetMessageReminderParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	MessageID uuid.UUID `json:"message_id"`
+	RemindAt  time.Time `json:"remind_at"`
+}
+
+func (q *Queries) SetMessageReminder(ctx context.Context, arg SetMessageReminderParams) (MessageReminder, error) {
+	row := q.db.QueryRowContext(ctx, setMessageReminder, arg.UserID, arg.MessageID, arg.RemindAt)
+	var i MessageReminder
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.MessageID,
+		&i.RemindAt,
+		&i.IsSent,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const unpinMessage = `-- name: UnpinMessage :exec
+UPDATE messages SET is_pinned = FALSE WHERE id = $1
+`
+
+func (q *Queries) UnpinMessage(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, unpinMessage, id)
+	return err
+}
+
+const unsaveMessage = `-- name: UnsaveMessage :exec
+DELETE FROM saved_messages
+WHERE user_id = $1 AND message_id = $2
+`
+
+type UnsaveMessageParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	MessageID uuid.UUID `json:"message_id"`
+}
+
+func (q *Queries) UnsaveMessage(ctx context.Context, arg UnsaveMessageParams) error {
+	_, err := q.db.ExecContext(ctx, unsaveMessage, arg.UserID, arg.MessageID)
+	return err
+}
+
 const updateMessageDelivered = `-- name: UpdateMessageDelivered :exec
-UPDATE message_status SET delivered = TRUE,delivered_at = NOW() WHERE message_id =$1 AND user_id =$2
+UPDATE message_status
+SET delivered = TRUE, delivered_at = NOW()
+WHERE message_id = $1 AND user_id = $2
 `
 
 type UpdateMessageDeliveredParams struct {
@@ -269,7 +939,9 @@ func (q *Queries) UpdateMessageDelivered(ctx context.Context, arg UpdateMessageD
 }
 
 const updateMessageRead = `-- name: UpdateMessageRead :exec
-UPDATE message_status SET read = TRUE,read_at = NOW() WHERE message_id=$1 AND user_id=$2
+UPDATE message_status
+SET read = TRUE, read_at = NOW()
+WHERE message_id = $1 AND user_id = $2
 `
 
 type UpdateMessageReadParams struct {

@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"context"
+	"log"
 	"messenger/internal/auth"
 	"messenger/internal/config"
+	rdb "messenger/internal/redis"
 	"net/http"
 	"strings"
 	"time"
@@ -11,7 +14,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func Auth(cfg *config.Config) gin.HandlerFunc {
+func Auth(cfg *config.Config, redisClient ...*rdb.Client) gin.HandlerFunc {
 	jwtMgr := auth.NewJWTManager(
 		cfg.JWT.AccessSecret,
 		cfg.JWT.RefreshSecret,
@@ -32,6 +35,11 @@ func Auth(cfg *config.Config) gin.HandlerFunc {
 		}
 		c.Set("user_id", claims.UserID)
 		c.Set("jti", claims.JTI)
+
+		if len(redisClient) > 0 && redisClient[0] != nil {
+			log.Println("Setting online for", claims.UserID.String())
+			go redisClient[0].SetOnline(context.Background(), claims.UserID.String())
+		}
 		c.Next()
 	}
 }

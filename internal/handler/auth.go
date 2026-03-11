@@ -6,6 +6,7 @@ import (
 	"messenger/internal/auth"
 	"messenger/internal/config"
 	db "messenger/internal/db/sqlc"
+	"messenger/internal/redis"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -20,13 +21,15 @@ type AuthHandler struct {
 	q   *db.Queries
 	jwt *auth.JWTManager
 	cfg *config.Config
+	rdb *redis.Client
 }
 
-func NewAuthHandler(sqlDB *sql.DB, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(sqlDB *sql.DB, cfg *config.Config, rdb *redis.Client) *AuthHandler {
 	return &AuthHandler{
 		q:   db.New(sqlDB),
 		jwt: auth.NewJWTManager(cfg.JWT.AccessSecret, cfg.JWT.RefreshSecret, cfg.JWT.AccessMinutes, cfg.JWT.RefreshDays),
 		cfg: cfg,
+		rdb: rdb,
 	}
 }
 
@@ -70,6 +73,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Language: sql.NullString{String: "ru", Valid: true},
 	})
 	if err != nil {
+		log.Printf("❌ CreateUser error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
 	}
@@ -153,17 +157,17 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 
 	}
-	    log.Printf("🔍 refresh token: %s", req.RefreshToken[:20])
+	log.Printf("🔍 refresh token: %s", req.RefreshToken[:20])
 
 	claims, err := h.jwt.ParseRefresh(req.RefreshToken)
 	if err != nil {
-		log.Printf("❌ parse error: %v",err)
+		log.Printf("❌ parse error: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 		return
 	}
-	session,err := h.q.GetSessionByToken(c,req.RefreshToken)
+	session, err := h.q.GetSessionByToken(c, req.RefreshToken)
 
-    log.Printf("🔍 session: %+v, err: %v", session, err)
+	log.Printf("🔍 session: %+v, err: %v", session, err)
 
 	if _, err := h.q.GetSessionByToken(c, req.RefreshToken); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "session expired or not found"})
@@ -259,13 +263,14 @@ func (h *AuthHandler) issueTokens(c *gin.Context, userID uuid.UUID) (*tokenPair,
 }
 
 type safeUser struct {
-	ID        uuid.UUID `json:"id"`
-	Username  string    `json:"username"`
-	Email     string    `json:"email,omitempty"`
-	AvatarURL string    `json:"avatar_url,omitempty"`
-	Bio       string    `json:"bio,omitempty"`
-	IsOnline  bool      `json:"is_online"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        uuid.UUID  `json:"id"`
+	Username  string     `json:"username"`
+	Email     string     `json:"email,omitempty"`
+	AvatarURL string     `json:"avatar_url,omitempty"`
+	Bio       string     `json:"bio,omitempty"`
+	IsOnline  bool       `json:"is_online"`
+	LastSeen  *time.Time `json:"last_seen,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 func toSafeUser(u db.User) safeUser {
@@ -304,4 +309,31 @@ func parseInet(ipStr string) pqtype.Inet {
 	}
 	_ = ip
 	return pqtype.Inet{}
+}
+
+// @Summary      Get user by username
+// @Tags         users
+// @Security     BearerAuth
+// @Produce      json
+// @Param        username  path  string  true  "Username"
+// @Success      200  {object}  safeUser
+// @Failure      404  {object}  map[string]string
+// @Router       /users/{username} [get]
+func (h *AuthHandler) GetUser(c *gin.Context) {
+	username := c.Param("username")
+	user, err := h.q.GetUserByUsername(c, username)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	safe := toSafeUser(user)
+
+	isOnline, _ := h.rdb.IsOnline(c, user.ID.String())
+	safe.IsOnline = isOnline
+
+	lastSeen, err := h.rdb.GetLastseen(c, user.ID.String())
+	if err == nil {
+		safe.LastSeen = &lastSeen
+	}
+	c.JSON(http.StatusOK, safe)
 }

@@ -1,0 +1,704 @@
+package handler
+
+import (
+	"database/sql"
+	db "messenger/internal/db/sqlc"
+	"messenger/internal/store"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+type MessageHandler struct {
+	store *store.MessageStore
+}
+
+func NewMessageHandler(store *store.MessageStore) *MessageHandler {
+	return &MessageHandler{store: store}
+}
+
+//--send
+
+type sendMessageReq struct {
+	Type        string  `json:"type" binding:"required"`
+	Content     string  `json:"content"`
+	ReplyToID   *string `json:"reply_to_id"`
+	Format      string  `json:"format"`
+	IsSpoiler   bool    `json:"is_spoiler"`
+	ScheduledAt *string `json:"scheduled_at"`
+	ExpiresAt   *string `json:"expires_at"`
+	TopicID     *string `json:"topic_id"`
+	MediaID     *string `json:"media_id"`
+}
+
+// @Summary      Send message
+// @Description  Send a new message to a chat
+// @Tags         messages
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string         true  "Chat ID"
+// @Param        body  body      sendMessageReq true  "Message data"
+// @Success      201   {object}  messageResponse
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /chats/{id}/messages [post]
+func (h *MessageHandler) Send(c *gin.Context) {
+	chatID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid chat_id"})
+		return
+	}
+	senderID := c.MustGet("user_id").(uuid.UUID)
+
+	var req sendMessageReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	params := db.CreateMessageParams{
+		ChatID:   chatID,
+		SenderID: senderID,
+		Type:     sql.NullString{String: req.Type, Valid: true},
+		Content:  req.Content,
+	}
+	if req.ReplyToID != nil && *req.ReplyToID != "" {
+		if id, err := uuid.Parse(*req.ReplyToID); err == nil {
+			params.ReplyToID = uuid.NullUUID{UUID: id, Valid: true}
+		}
+	}
+	if req.ScheduledAt != nil && *req.ScheduledAt != "" {
+		if t, err := time.Parse(time.RFC3339, *req.ScheduledAt); err == nil {
+			params.ScheduledAt = sql.NullTime{Time: t, Valid: true}
+		}
+	}
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		if t, err := time.Parse(time.RFC3339, *req.ExpiresAt); err == nil {
+			params.ExpiresAt = sql.NullTime{Time: t, Valid: true}
+		}
+	}
+	if req.MediaID != nil && *req.MediaID != "" {
+		if id, err := uuid.Parse(*req.MediaID); err == nil {
+			params.MediaID = uuid.NullUUID{UUID: id, Valid: true}
+		}
+	}
+	msq, err := h.store.Send(c, params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send message"})
+		return
+	}
+	c.JSON(http.StatusCreated, toMessageResponse(msq))
+}
+
+//--Get
+
+// @Summary      Get chat messages
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id      path   string  true   "Chat ID"
+// @Param        limit   query  int     false  "Limit"
+// @Param        offset  query  int     false  "Offset"
+// @Success      200  {object}  map[string]any
+// @Router       /chats/{id}/messages [get]
+func (h *MessageHandler) Getmessages(c *gin.Context) {
+	chatID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid chat_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	limit := int32(50)
+	offset := int32(0)
+	if l := c.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil {
+			limit = int32(v)
+		}
+	}
+	if o := c.Query("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil {
+			offset = int32(v)
+		}
+	}
+	messages, err := h.store.GetChatMessages(c, chatID, userID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get messages"})
+		return
+	}
+	result := make([]messageResponse, len(messages))
+	for i, m := range messages {
+		result[i] = toMessageResponse(m)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"messages": result,
+		"limit":    limit,
+		"offset":   offset,
+	})
+}
+
+// --Edit
+type editMessageReq struct {
+	Content string `json:"content" binding:"required"`
+	Format  string `json:"format"`
+}
+
+// @Summary      Edit message
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id    path  string         true  "Message ID"
+// @Param        body  body  editMessageReq true  "New content"
+// @Success      200   {object}  messageResponse
+// @Failure      403   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Router       /messages/{id} [put]
+func (h *MessageHandler) Edit(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	var req editMessageReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	//checking what edits exactly sender
+	msg, err := h.store.GetByID(c, msgID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+		return
+	}
+	if msg.SenderID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot edit someone else message"})
+		return
+	}
+	updated, err := h.store.Edit(c, msgID, req.Content, sql.NullString{String: req.Format, Valid: req.Format != ""})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to edit message"})
+		return
+	}
+	c.JSON(http.StatusOK, toMessageResponse(
+
+		updated))
+}
+
+//--Delete
+
+// @Summary      Delete message for everyone
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Message ID"
+// @Success      200  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Router       /messages/{id} [delete]
+func (h *MessageHandler) DeleteForAll(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	msg, err := h.store.GetByID(c, msgID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+		return
+	}
+	if msg.SenderID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot delete someone else message"})
+		return
+	}
+
+	if err := h.store.DeleteForAll(c, msgID, msg.ChatID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete message"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+// @Summary      Delete message for me
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Message ID"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/me [delete]
+func (h *MessageHandler) DeleteForme(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	if err := h.store.DeleteForMe(c, msgID, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete message"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted for you"})
+}
+
+//--Forward
+
+type forwardReq struct {
+	ToChatID uuid.UUID `json:"to_chat_id" binding:"required"`
+}
+
+// @Summary      Forward message
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id    path  string      true  "Message ID"
+// @Param        body  body  forwardReq  true  "Target chat"
+// @Success      201   {object}  messageResponse
+// @Router       /messages/{id}/forward [post]
+func (h *MessageHandler) Forward(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	senderID := c.MustGet("user_id").(uuid.UUID)
+
+	var req forwardReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	msg, err := h.store.Forward(c, msgID, req.ToChatID, senderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to forward message"})
+		return
+	}
+	c.JSON(http.StatusCreated, toMessageResponse(msg))
+}
+
+//--Pin
+
+// @Summary      Pin message
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Message ID"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/pin [post]
+func (h *MessageHandler) Pin(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	msg, err := h.store.GetByID(c, msgID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+		return
+	}
+	if err := h.store.Pin(c, msgID, msg.ChatID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to pin message"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "pinned"})
+}
+
+// @Summary      Unpin message
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Message ID"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/pin [delete]
+func (h *MessageHandler) Unpin(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	msg, err := h.store.GetByID(c, msgID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+		return
+	}
+	if err := h.store.Unpin(c, msgID, msg.ChatID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to pin message"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "unpinned"})
+}
+
+// @Summary      Get pinned messages
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Chat ID"
+// @Success      200  {array}  messageResponse
+// @Router       /chats/{id}/pinned [get]
+func (h *MessageHandler) GetPinned(c *gin.Context) {
+	chatID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid chat_id"})
+		return
+	}
+	messages, err := h.store.GetPinned(c, chatID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to get pinned messages"})
+		return
+	}
+	result := make([]messageResponse, len(messages))
+	for i, m := range messages {
+		result[i] = toMessageResponse(m)
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// --Reactions
+type reactReq struct {
+	Emoji string `json:"emoji" binding:"required"`
+}
+
+// @Summary      Add reaction
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id    path  string    true  "Message ID"
+// @Param        body  body  reactReq  true  "Emoji"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/react [post]
+func (h *MessageHandler) AddReaction(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	var req reactReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.store.AddReaction(c, msgID, userID, req.Emoji); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to add reaction"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "reaction added"})
+}
+
+// @Summary      Remove reaction
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id    path  string    true  "Message ID"
+// @Param        body  body  reactReq  true  "Emoji"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/react [delete]
+func (h *MessageHandler) RemoveReactions(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	var req reactReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.store.RemoveReactions(c, msgID, userID, req.Emoji); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to remove reaction"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "reaction removed"})
+}
+
+//--Read receipts
+
+// @Summary      Mark message as read
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Message ID"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/read [post]
+func (h *MessageHandler) MarkRead(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	if err := h.store.MarkRead(c, msgID, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to mark as read"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "marked as read"})
+}
+
+// @Summary      Mark chat as read
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Chat ID"
+// @Success      200  {object}  map[string]string
+// @Router       /chats/{id}/read [post]
+func (h *MessageHandler) MarkChatRead(c *gin.Context) {
+	ChatID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid chat_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	if err := h.store.MarkChatRead(c, ChatID, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to mark chat as read"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "chat marked as read"})
+}
+
+// @Summary      Typing indicator
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Chat ID"
+// @Success      200  {object}  map[string]string
+// @Router       /chats/{id}/typing [post]
+func (h *MessageHandler) Typing(c *gin.Context) {
+	chatID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid chat_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	if err := h.store.SetTyping(c, chatID, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to set typing"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+//--Saved Messages
+
+// @Summary      Save message
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Message ID"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/save [post]
+func (h *MessageHandler) Save(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	if err := h.store.Save(c, userID, msgID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to set typing"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+// @Summary      Get saved messages
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        limit   query  int  false  "Limit"
+// @Param        offset  query  int  false  "Offset"
+// @Success      200  {array}  messageResponse
+// @Router       /messages/saved [get]
+func (h *MessageHandler) GetSaved(c *gin.Context) {
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	limit := int32(50)
+	offset := int32(0)
+	if l := c.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil {
+			limit = int32(v)
+		}
+	}
+	if o := c.Query("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil {
+			offset = int32(v)
+		}
+	}
+	messages, err := h.store.GetSaved(c, userID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to get saved messages"})
+		return
+	}
+	result := make([]messageResponse, len(messages))
+	for i, ch := range messages {
+		result[i] = toMessageResponse(ch)
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+//--Reminder
+
+type reminderReq struct {
+	RemindAt time.Time `json:"remind_at" binding:"required"`
+}
+
+// @Summary      Set reminder
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id    path  string       true  "Message ID"
+// @Param        body  body  reminderReq  true  "Reminder time"
+// @Success      201  {object}  db.MessageReminder
+// @Router       /messages/{id}/reminder [post]
+func (h *MessageHandler) SetReminder(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	var req reminderReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	reminder, err := h.store.SetReminder(c, userID, msgID, req.RemindAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to set reminder"})
+		return
+	}
+	c.JSON(http.StatusCreated, reminderResponse{
+		ID:        reminder.ID,
+		UserID:    reminder.UserID,
+		MessageID: reminder.MessageID,
+		RemindAt:  reminder.RemindAt,
+		IsSent:    reminder.IsSent.Bool,
+		CreatedAt: reminder.CreatedAt.Time,
+	})
+}
+
+//--Search
+
+// @Summary      Search messages
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id      path   string  true   "Chat ID"
+// @Param        q       query  string  true   "Search query"
+// @Param        limit   query  int     false  "Limit"
+// @Param        offset  query  int     false  "Offset"
+// @Success      200  {object}  map[string]any
+// @Router       /chats/{id}/messages/search [get]
+func (h *MessageHandler) Search(c *gin.Context) {
+	chatID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid chat_id"})
+		return
+	}
+	query := c.Query("q")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
+		return
+	}
+
+	limit := int32(50)
+	offset := int32(0)
+	if l := c.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil {
+			limit = int32(v)
+		}
+	}
+	if o := c.Query("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil {
+			offset = int32(v)
+		}
+	}
+	messages, err := h.store.Search(c, chatID, query, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to search messages"})
+		return
+	}
+	result := make([]messageResponse, len(messages))
+	for i, m := range messages {
+		result[i] = toMessageResponse(m)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"messages": result,
+		"query":    query,
+	})
+}
+
+type messageResponse struct {
+	ID              uuid.UUID  `json:"id"`
+	ChatID          uuid.UUID  `json:"chat_id"`
+	SenderID        uuid.UUID  `json:"sender_id"`
+	ReplyToID       *uuid.UUID `json:"reply_to_id,omitempty"`
+	ForwardedFromID *uuid.UUID `json:"forwarded_from_id,omitempty"`
+	Type            string     `json:"type"`
+	Content         string     `json:"content"`
+	Format          string     `json:"format,omitempty"`
+	IsEdited        bool       `json:"is_edited"`
+	IsPinned        bool       `json:"is_pinned"`
+	IsSpoiler       bool       `json:"is_spoiler,omitempty"`
+	QuotedText      string     `json:"quoted_text,omitempty"`
+	ForwardSenderID *uuid.UUID `json:"forward_sender_id,omitempty"`
+	ForwardChatID   *uuid.UUID `json:"forward_chat_id,omitempty"`
+	CreatedAt       time.Time  `json:"created_at,omitempty"`
+	UpdatedAt       time.Time  `json:"updated_at,omitempty"`
+	ScheduledAt     *time.Time `json:"scheduled_at,omitempty"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+}
+
+func toMessageResponse(m db.Message) messageResponse {
+	r := messageResponse{
+		ID:        m.ID,
+		ChatID:    m.ChatID,
+		SenderID:  m.SenderID,
+		Content:   m.Content,
+		IsEdited:  m.IsEdited.Bool,
+		IsPinned:  m.IsPinned.Bool,
+		IsSpoiler: m.IsSpoiler.Bool,
+	}
+	if m.Type.Valid {
+		r.Type = m.Type.String
+	}
+	if m.Format.Valid {
+		r.Format = m.Format.String
+	}
+	if m.ReplyToID.Valid {
+		r.ReplyToID = &m.ReplyToID.UUID
+	}
+	if m.ForwardedFromID.Valid {
+		r.ForwardedFromID = &m.ForwardedFromID.UUID
+	}
+	if m.ForwardSenderID.Valid {
+		r.ForwardSenderID = &m.ForwardSenderID.UUID
+	}
+	if m.ForwardChatID.Valid {
+		r.ForwardChatID = &m.ForwardChatID.UUID
+	}
+	if m.QuotedText.Valid {
+		r.QuotedText = m.QuotedText.String
+	}
+	if m.CreatedAt.Valid {
+		r.CreatedAt = m.CreatedAt.Time
+	}
+	if m.UpdatedAt.Valid {
+		r.UpdatedAt = m.UpdatedAt.Time
+	}
+	if m.ScheduledAt.Valid {
+		r.ScheduledAt = &m.ScheduledAt.Time
+	}
+	if m.ExpiresAt.Valid {
+		r.ExpiresAt = &m.ExpiresAt.Time
+	}
+	return r
+}
+
+type reminderResponse struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	MessageID uuid.UUID `json:"message_id"`
+	RemindAt  time.Time `json:"remind_at"`
+	IsSent    bool      `json:"is_sent"`
+	CreatedAt time.Time `json:"created_at"`
+}

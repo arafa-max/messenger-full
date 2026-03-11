@@ -144,27 +144,6 @@ CREATE TABLE message_status (
     PRIMARY KEY (message_id, user_id)
 );
 
--- ============================================
--- МЕДИАФАЙЛЫ
--- ============================================
-CREATE TABLE media (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    message_id      UUID REFERENCES messages(id) ON DELETE CASCADE,
-    uploader_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    type            VARCHAR(10) NOT NULL,         -- image, video, audio, file, voice, sticker
-    url             TEXT NOT NULL,
-    thumbnail_url   TEXT,
-    file_name       TEXT,
-    mime_type       TEXT,
-    size_bytes      BIGINT,
-    width           INT,
-    height          INT,
-    duration        INT,
-    is_voice        BOOLEAN DEFAULT FALSE,
-    waveform        FLOAT[],                      -- визуализация волны
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    metadata        JSONB DEFAULT '{}'
-);
 
 -- ============================================
 -- РЕАКЦИИ

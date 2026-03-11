@@ -67,6 +67,15 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 	return i, err
 }
 
+const deleteChat = `-- name: DeleteChat :exec
+UPDATE chats SET is_deleted = TRUE WHERE id = $1
+`
+
+func (q *Queries) DeleteChat(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteChat, id)
+	return err
+}
+
 const getChatByID = `-- name: GetChatByID :one
 SELECT id, type, name, username, avatar_url, description, owner_id, is_public, is_deleted, slow_mode, member_count, invite_link, created_at, updated_at, metadata FROM chats WHERE id=$1 AND is_deleted=FALSE
 `
@@ -89,6 +98,31 @@ func (q *Queries) GetChatByID(ctx context.Context, id uuid.UUID) (Chat, error) {
 		&i.InviteLink,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Metadata,
+	)
+	return i, err
+}
+
+const getChatMember = `-- name: GetChatMember :one
+SELECT chat_id, user_id, role, muted_until, is_banned, last_read_at, joined_at, metadata FROM chat_members WHERE chat_id = $1 AND user_id = $2
+`
+
+type GetChatMemberParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetChatMember(ctx context.Context, arg GetChatMemberParams) (ChatMember, error) {
+	row := q.db.QueryRowContext(ctx, getChatMember, arg.ChatID, arg.UserID)
+	var i ChatMember
+	err := row.Scan(
+		&i.ChatID,
+		&i.UserID,
+		&i.Role,
+		&i.MutedUntil,
+		&i.IsBanned,
+		&i.LastReadAt,
+		&i.JoinedAt,
 		&i.Metadata,
 	)
 	return i, err
@@ -128,6 +162,42 @@ func (q *Queries) GetChatMembers(ctx context.Context, chatID uuid.UUID) ([]ChatM
 		return nil, err
 	}
 	return items, nil
+}
+
+const getPrivateChatBetweenUsers = `-- name: GetPrivateChatBetweenUsers :one
+SELECT c.id, c.type, c.name, c.username, c.avatar_url, c.description, c.owner_id, c.is_public, c.is_deleted, c.slow_mode, c.member_count, c.invite_link, c.created_at, c.updated_at, c.metadata FROM chats c
+JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = $1
+JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = $2
+WHERE c.type = 'private' AND c.is_deleted = FALSE
+LIMIT 1
+`
+
+type GetPrivateChatBetweenUsersParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	UserID_2 uuid.UUID `json:"user_id_2"`
+}
+
+func (q *Queries) GetPrivateChatBetweenUsers(ctx context.Context, arg GetPrivateChatBetweenUsersParams) (Chat, error) {
+	row := q.db.QueryRowContext(ctx, getPrivateChatBetweenUsers, arg.UserID, arg.UserID_2)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Name,
+		&i.Username,
+		&i.AvatarUrl,
+		&i.Description,
+		&i.OwnerID,
+		&i.IsPublic,
+		&i.IsDeleted,
+		&i.SlowMode,
+		&i.MemberCount,
+		&i.InviteLink,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Metadata,
+	)
+	return i, err
 }
 
 const getUserChats = `-- name: GetUserChats :many
@@ -200,5 +270,14 @@ type UpdateChatMemberRoleParams struct {
 
 func (q *Queries) UpdateChatMemberRole(ctx context.Context, arg UpdateChatMemberRoleParams) error {
 	_, err := q.db.ExecContext(ctx, updateChatMemberRole, arg.ChatID, arg.UserID, arg.Role)
+	return err
+}
+
+const updateChatUpdatedAt = `-- name: UpdateChatUpdatedAt :exec
+UPDATE chats SET updated_at = NOW() WHERE id = $1
+`
+
+func (q *Queries) UpdateChatUpdatedAt(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, updateChatUpdatedAt, id)
 	return err
 }

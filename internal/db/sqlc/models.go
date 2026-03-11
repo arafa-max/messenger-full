@@ -6,11 +6,117 @@ package db
 
 import (
 	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
 )
+
+type MediaStatus string
+
+const (
+	MediaStatusPending   MediaStatus = "pending"
+	MediaStatusUploaded  MediaStatus = "uploaded"
+	MediaStatusProcessed MediaStatus = "processed"
+	MediaStatusFailed    MediaStatus = "failed"
+)
+
+func (e *MediaStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MediaStatus(s)
+	case string:
+		*e = MediaStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MediaStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMediaStatus struct {
+	MediaStatus MediaStatus `json:"media_status"`
+	Valid       bool        `json:"valid"` // Valid is true if MediaStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMediaStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MediaStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MediaStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMediaStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MediaStatus), nil
+}
+
+type MediaType string
+
+const (
+	MediaTypeImage   MediaType = "image"
+	MediaTypeVideo   MediaType = "video"
+	MediaTypeAudio   MediaType = "audio"
+	MediaTypeFile    MediaType = "file"
+	MediaTypeVoice   MediaType = "voice"
+	MediaTypeSticker MediaType = "sticker"
+	MediaTypeGif     MediaType = "gif"
+)
+
+func (e *MediaType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MediaType(s)
+	case string:
+		*e = MediaType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MediaType: %T", src)
+	}
+	return nil
+}
+
+type NullMediaType struct {
+	MediaType MediaType `json:"media_type"`
+	Valid     bool      `json:"valid"` // Valid is true if MediaType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMediaType) Scan(value interface{}) error {
+	if value == nil {
+		ns.MediaType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MediaType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMediaType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MediaType), nil
+}
+
+type AuditLog struct {
+	ID         uuid.UUID             `json:"id"`
+	ActorID    uuid.NullUUID         `json:"actor_id"`
+	Action     string                `json:"action"`
+	TargetType sql.NullString        `json:"target_type"`
+	TargetID   uuid.NullUUID         `json:"target_id"`
+	IpAddress  pqtype.Inet           `json:"ip_address"`
+	UserAgent  sql.NullString        `json:"user_agent"`
+	Metadata   pqtype.NullRawMessage `json:"metadata"`
+	CreatedAt  sql.NullTime          `json:"created_at"`
+}
 
 type Bot struct {
 	ID         uuid.UUID             `json:"id"`
@@ -44,6 +150,15 @@ type CallParticipant struct {
 	LeftAt     sql.NullTime `json:"left_at"`
 	IsMuted    sql.NullBool `json:"is_muted"`
 	IsVideoOff sql.NullBool `json:"is_video_off"`
+}
+
+type ChannelStat struct {
+	ChannelID   uuid.UUID     `json:"channel_id"`
+	Date        time.Time     `json:"date"`
+	Views       sql.NullInt32 `json:"views"`
+	Shares      sql.NullInt32 `json:"shares"`
+	NewMembers  sql.NullInt32 `json:"new_members"`
+	LeftMembers sql.NullInt32 `json:"left_members"`
 }
 
 type Chat struct {
@@ -89,12 +204,31 @@ type ChatMember struct {
 	Metadata   pqtype.NullRawMessage `json:"metadata"`
 }
 
+type ChatTopic struct {
+	ID           uuid.UUID      `json:"id"`
+	ChatID       uuid.UUID      `json:"chat_id"`
+	Name         string         `json:"name"`
+	IconEmoji    sql.NullString `json:"icon_emoji"`
+	IconColor    sql.NullString `json:"icon_color"`
+	CreatedBy    uuid.NullUUID  `json:"created_by"`
+	IsClosed     sql.NullBool   `json:"is_closed"`
+	IsHidden     sql.NullBool   `json:"is_hidden"`
+	MessageCount sql.NullInt32  `json:"message_count"`
+	CreatedAt    sql.NullTime   `json:"created_at"`
+}
+
 type Contact struct {
 	UserID    uuid.UUID      `json:"user_id"`
 	ContactID uuid.UUID      `json:"contact_id"`
 	Nickname  sql.NullString `json:"nickname"`
 	IsBlocked sql.NullBool   `json:"is_blocked"`
 	CreatedAt sql.NullTime   `json:"created_at"`
+}
+
+type DeletedMessage struct {
+	MessageID uuid.UUID    `json:"message_id"`
+	UserID    uuid.UUID    `json:"user_id"`
+	DeletedAt sql.NullTime `json:"deleted_at"`
 }
 
 type Device struct {
@@ -119,23 +253,77 @@ type EncryptionKey struct {
 	CreatedAt sql.NullTime   `json:"created_at"`
 }
 
+type IdentityKey struct {
+	ID             uuid.UUID     `json:"id"`
+	UserID         uuid.UUID     `json:"user_id"`
+	DeviceID       uuid.NullUUID `json:"device_id"`
+	PublicKey      string        `json:"public_key"`
+	RegistrationID int32         `json:"registration_id"`
+	CreatedAt      sql.NullTime  `json:"created_at"`
+}
+
+type InviteLink struct {
+	ID        uuid.UUID     `json:"id"`
+	Code      string        `json:"code"`
+	ChatID    uuid.UUID     `json:"chat_id"`
+	CreatedBy uuid.UUID     `json:"created_by"`
+	MaxUses   sql.NullInt32 `json:"max_uses"`
+	UsesCount sql.NullInt32 `json:"uses_count"`
+	ExpiresAt sql.NullTime  `json:"expires_at"`
+	IsRevoked sql.NullBool  `json:"is_revoked"`
+	CreatedAt sql.NullTime  `json:"created_at"`
+}
+
+type KeyBundle struct {
+	UserID    uuid.UUID       `json:"user_id"`
+	DeviceID  uuid.UUID       `json:"device_id"`
+	Bundle    json.RawMessage `json:"bundle"`
+	UpdatedAt sql.NullTime    `json:"updated_at"`
+}
+
+type LinkPreview struct {
+	ID          uuid.UUID      `json:"id"`
+	Url         string         `json:"url"`
+	Title       sql.NullString `json:"title"`
+	Description sql.NullString `json:"description"`
+	ImageUrl    sql.NullString `json:"image_url"`
+	SiteName    sql.NullString `json:"site_name"`
+	FetchedAt   sql.NullTime   `json:"fetched_at"`
+	ExpiresAt   sql.NullTime   `json:"expires_at"`
+}
+
+type LiveLocation struct {
+	ID        uuid.UUID       `json:"id"`
+	UserID    uuid.UUID       `json:"user_id"`
+	ChatID    uuid.UUID       `json:"chat_id"`
+	MessageID uuid.NullUUID   `json:"message_id"`
+	Latitude  float64         `json:"latitude"`
+	Longitude float64         `json:"longitude"`
+	Heading   sql.NullInt32   `json:"heading"`
+	Accuracy  sql.NullFloat64 `json:"accuracy"`
+	ExpiresAt time.Time       `json:"expires_at"`
+	UpdatedAt sql.NullTime    `json:"updated_at"`
+	CreatedAt sql.NullTime    `json:"created_at"`
+}
+
 type Medium struct {
 	ID           uuid.UUID             `json:"id"`
-	MessageID    uuid.NullUUID         `json:"message_id"`
 	UploaderID   uuid.UUID             `json:"uploader_id"`
-	Type         string                `json:"type"`
-	Url          string                `json:"url"`
-	ThumbnailUrl sql.NullString        `json:"thumbnail_url"`
-	FileName     sql.NullString        `json:"file_name"`
-	MimeType     sql.NullString        `json:"mime_type"`
+	Type         MediaType             `json:"type"`
+	Status       MediaStatus           `json:"status"`
+	Bucket       string                `json:"bucket"`
+	ObjectKey    string                `json:"object_key"`
+	OriginalName sql.NullString        `json:"original_name"`
+	MimeType     string                `json:"mime_type"`
 	SizeBytes    sql.NullInt64         `json:"size_bytes"`
 	Width        sql.NullInt32         `json:"width"`
 	Height       sql.NullInt32         `json:"height"`
-	Duration     sql.NullInt32         `json:"duration"`
-	IsVoice      sql.NullBool          `json:"is_voice"`
-	Waveform     []float64             `json:"waveform"`
-	CreatedAt    sql.NullTime          `json:"created_at"`
-	Metadata     pqtype.NullRawMessage `json:"metadata"`
+	DurationSec  sql.NullFloat64       `json:"duration_sec"`
+	ThumbKey     sql.NullString        `json:"thumb_key"`
+	Waveform     pqtype.NullRawMessage `json:"waveform"`
+	BlurHash     sql.NullString        `json:"blur_hash"`
+	CreatedAt    time.Time             `json:"created_at"`
+	ExpiresAt    sql.NullTime          `json:"expires_at"`
 }
 
 type Message struct {
@@ -146,7 +334,7 @@ type Message struct {
 	ThreadID        uuid.NullUUID         `json:"thread_id"`
 	ForwardedFromID uuid.NullUUID         `json:"forwarded_from_id"`
 	Type            sql.NullString        `json:"type"`
-	Content         sql.NullString        `json:"content"`
+	Content         string                `json:"content"`
 	IsEncrypted     sql.NullBool          `json:"is_encrypted"`
 	IsEdited        sql.NullBool          `json:"is_edited"`
 	IsDeleted       sql.NullBool          `json:"is_deleted"`
@@ -157,6 +345,33 @@ type Message struct {
 	CreatedAt       sql.NullTime          `json:"created_at"`
 	UpdatedAt       sql.NullTime          `json:"updated_at"`
 	Metadata        pqtype.NullRawMessage `json:"metadata"`
+	TopicID         uuid.NullUUID         `json:"topic_id"`
+	Format          sql.NullString        `json:"format"`
+	IsSpoiler       sql.NullBool          `json:"is_spoiler"`
+	QuotedText      sql.NullString        `json:"quoted_text"`
+	QuotedOffset    sql.NullInt32         `json:"quoted_offset"`
+	QuotedLength    sql.NullInt32         `json:"quoted_length"`
+	ForwardSenderID uuid.NullUUID         `json:"forward_sender_id"`
+	ForwardChatID   uuid.NullUUID         `json:"forward_chat_id"`
+	ForwardDate     sql.NullTime          `json:"forward_date"`
+	MediaID         uuid.NullUUID         `json:"media_id"`
+}
+
+type MessageEdit struct {
+	ID         uuid.UUID    `json:"id"`
+	MessageID  uuid.UUID    `json:"message_id"`
+	OldContent string       `json:"old_content"`
+	EditedAt   sql.NullTime `json:"edited_at"`
+	EditNumber int32        `json:"edit_number"`
+}
+
+type MessageReminder struct {
+	ID        uuid.UUID    `json:"id"`
+	UserID    uuid.UUID    `json:"user_id"`
+	MessageID uuid.UUID    `json:"message_id"`
+	RemindAt  time.Time    `json:"remind_at"`
+	IsSent    sql.NullBool `json:"is_sent"`
+	CreatedAt sql.NullTime `json:"created_at"`
 }
 
 type MessageStatus struct {
@@ -179,6 +394,39 @@ type Notification struct {
 	ReferenceType sql.NullString        `json:"reference_type"`
 	CreatedAt     sql.NullTime          `json:"created_at"`
 	Metadata      pqtype.NullRawMessage `json:"metadata"`
+}
+
+type OneTimePrekey struct {
+	ID        uuid.UUID     `json:"id"`
+	UserID    uuid.UUID     `json:"user_id"`
+	DeviceID  uuid.NullUUID `json:"device_id"`
+	KeyID     int32         `json:"key_id"`
+	PublicKey string        `json:"public_key"`
+	IsUsed    sql.NullBool  `json:"is_used"`
+	UsedAt    sql.NullTime  `json:"used_at"`
+	CreatedAt sql.NullTime  `json:"created_at"`
+}
+
+type Passkey struct {
+	ID           uuid.UUID      `json:"id"`
+	UserID       uuid.UUID      `json:"user_id"`
+	CredentialID string         `json:"credential_id"`
+	PublicKey    []byte         `json:"public_key"`
+	Aaguid       uuid.NullUUID  `json:"aaguid"`
+	SignCount    sql.NullInt64  `json:"sign_count"`
+	DeviceType   sql.NullString `json:"device_type"`
+	BackedUp     sql.NullBool   `json:"backed_up"`
+	Transports   []string       `json:"transports"`
+	Name         sql.NullString `json:"name"`
+	LastUsedAt   sql.NullTime   `json:"last_used_at"`
+	CreatedAt    sql.NullTime   `json:"created_at"`
+}
+
+type PinnedMessage struct {
+	ChatID    uuid.UUID    `json:"chat_id"`
+	MessageID uuid.UUID    `json:"message_id"`
+	PinnedBy  uuid.UUID    `json:"pinned_by"`
+	PinnedAt  sql.NullTime `json:"pinned_at"`
 }
 
 type Poll struct {
@@ -208,11 +456,32 @@ type PollVote struct {
 	CreatedAt sql.NullTime `json:"created_at"`
 }
 
+type QuickReply struct {
+	ID        uuid.UUID    `json:"id"`
+	UserID    uuid.UUID    `json:"user_id"`
+	Shortcut  string       `json:"shortcut"`
+	Text      string       `json:"text"`
+	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+type RateLimit struct {
+	Key         string        `json:"key"`
+	Count       sql.NullInt32 `json:"count"`
+	WindowStart time.Time     `json:"window_start"`
+}
+
 type Reaction struct {
 	MessageID uuid.UUID    `json:"message_id"`
 	UserID    uuid.UUID    `json:"user_id"`
 	Emoji     string       `json:"emoji"`
 	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+type SavedMessage struct {
+	ID        uuid.UUID    `json:"id"`
+	UserID    uuid.UUID    `json:"user_id"`
+	MessageID uuid.UUID    `json:"message_id"`
+	SavedAt   sql.NullTime `json:"saved_at"`
 }
 
 type Session struct {
@@ -226,6 +495,16 @@ type Session struct {
 	UserAgent    sql.NullString `json:"user_agent"`
 	Fingerprint  sql.NullString `json:"fingerprint"`
 	RevokedAt    sql.NullTime   `json:"revoked_at"`
+}
+
+type SignedPrekey struct {
+	ID        uuid.UUID     `json:"id"`
+	UserID    uuid.UUID     `json:"user_id"`
+	DeviceID  uuid.NullUUID `json:"device_id"`
+	KeyID     int32         `json:"key_id"`
+	PublicKey string        `json:"public_key"`
+	Signature string        `json:"signature"`
+	CreatedAt sql.NullTime  `json:"created_at"`
 }
 
 type Sticker struct {
@@ -263,28 +542,67 @@ type StoryView struct {
 	ViewedAt sql.NullTime `json:"viewed_at"`
 }
 
-type User struct {
+type Subscription struct {
 	ID         uuid.UUID             `json:"id"`
-	Username   string                `json:"username"`
-	Phone      sql.NullString        `json:"phone"`
-	Email      sql.NullString        `json:"email"`
-	Password   string                `json:"password"`
-	AvatarUrl  sql.NullString        `json:"avatar_url"`
-	Bio        sql.NullString        `json:"bio"`
-	IsOnline   sql.NullBool          `json:"is_online"`
-	LastSeen   sql.NullTime          `json:"last_seen"`
-	IsVerified sql.NullBool          `json:"is_verified"`
-	IsBot      sql.NullBool          `json:"is_bot"`
-	IsDeleted  sql.NullBool          `json:"is_deleted"`
-	DeleteAt   sql.NullTime          `json:"delete_at"`
-	Language   sql.NullString        `json:"language"`
-	CreatedAt  sql.NullTime          `json:"created_at"`
-	UpdatedAt  sql.NullTime          `json:"updated_at"`
+	UserID     uuid.UUID             `json:"user_id"`
+	Plan       string                `json:"plan"`
+	Status     sql.NullString        `json:"status"`
+	StartedAt  sql.NullTime          `json:"started_at"`
+	ExpiresAt  sql.NullTime          `json:"expires_at"`
+	AutoRenew  sql.NullBool          `json:"auto_renew"`
+	PaymentRef sql.NullString        `json:"payment_ref"`
 	Metadata   pqtype.NullRawMessage `json:"metadata"`
+}
+
+type User struct {
+	ID              uuid.UUID             `json:"id"`
+	Username        string                `json:"username"`
+	Phone           sql.NullString        `json:"phone"`
+	Email           sql.NullString        `json:"email"`
+	Password        string                `json:"password"`
+	AvatarUrl       sql.NullString        `json:"avatar_url"`
+	Bio             sql.NullString        `json:"bio"`
+	IsOnline        sql.NullBool          `json:"is_online"`
+	LastSeen        sql.NullTime          `json:"last_seen"`
+	IsVerified      sql.NullBool          `json:"is_verified"`
+	IsBot           sql.NullBool          `json:"is_bot"`
+	IsDeleted       sql.NullBool          `json:"is_deleted"`
+	DeleteAt        sql.NullTime          `json:"delete_at"`
+	Language        sql.NullString        `json:"language"`
+	CreatedAt       sql.NullTime          `json:"created_at"`
+	UpdatedAt       sql.NullTime          `json:"updated_at"`
+	Metadata        pqtype.NullRawMessage `json:"metadata"`
+	TotpSecret      sql.NullString        `json:"totp_secret"`
+	TotpPending     sql.NullString        `json:"totp_pending"`
+	TotpBackup      []string              `json:"totp_backup"`
+	IsPremium       sql.NullBool          `json:"is_premium"`
+	PremiumUntil    sql.NullTime          `json:"premium_until"`
+	LastSeenPrivacy sql.NullString        `json:"last_seen_privacy"`
+	OnlinePrivacy   sql.NullString        `json:"online_privacy"`
 }
 
 type UserStickerPack struct {
 	UserID  uuid.UUID    `json:"user_id"`
 	PackID  uuid.UUID    `json:"pack_id"`
 	AddedAt sql.NullTime `json:"added_at"`
+}
+
+type VoiceRoom struct {
+	ID        uuid.UUID      `json:"id"`
+	ChatID    uuid.UUID      `json:"chat_id"`
+	Name      string         `json:"name"`
+	Type      sql.NullString `json:"type"`
+	UserLimit sql.NullInt32  `json:"user_limit"`
+	IsActive  sql.NullBool   `json:"is_active"`
+	CreatedAt sql.NullTime   `json:"created_at"`
+}
+
+type VoiceRoomParticipant struct {
+	RoomID     uuid.UUID    `json:"room_id"`
+	UserID     uuid.UUID    `json:"user_id"`
+	IsMuted    sql.NullBool `json:"is_muted"`
+	IsDeafened sql.NullBool `json:"is_deafened"`
+	IsVideo    sql.NullBool `json:"is_video"`
+	IsSpeaking sql.NullBool `json:"is_speaking"`
+	JoinedAt   sql.NullTime `json:"joined_at"`
 }

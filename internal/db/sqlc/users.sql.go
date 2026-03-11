@@ -10,12 +10,13 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const createUser = `-- name: CreateUser :one
 INSERT INTO users(username,phone,email,password,language)
 VALUES ($1,$2,$3,$4,$5)
-RETURNING id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata
+RETURNING id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy
 `
 
 type CreateUserParams struct {
@@ -53,6 +54,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TotpSecret,
+		&i.TotpPending,
+		pq.Array(&i.TotpBackup),
+		&i.IsPremium,
+		&i.PremiumUntil,
+		&i.LastSeenPrivacy,
+		&i.OnlinePrivacy,
 	)
 	return i, err
 }
@@ -67,7 +75,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) error {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata FROM users WHERE email =$1 AND is_deleted=FALSE
+SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE email =$1 AND is_deleted=FALSE
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email sql.NullString) (User, error) {
@@ -91,12 +99,19 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email sql.NullString) (Use
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TotpSecret,
+		&i.TotpPending,
+		pq.Array(&i.TotpBackup),
+		&i.IsPremium,
+		&i.PremiumUntil,
+		&i.LastSeenPrivacy,
+		&i.OnlinePrivacy,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata FROM users WHERE id = $1 AND is_deleted = FALSE
+SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE id = $1 AND is_deleted = FALSE
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
@@ -120,12 +135,19 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TotpSecret,
+		&i.TotpPending,
+		pq.Array(&i.TotpBackup),
+		&i.IsPremium,
+		&i.PremiumUntil,
+		&i.LastSeenPrivacy,
+		&i.OnlinePrivacy,
 	)
 	return i, err
 }
 
 const getUserByPhone = `-- name: GetUserByPhone :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata FROM users WHERE phone =$1 AND is_deleted=FALSE
+SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE phone =$1 AND is_deleted=FALSE
 `
 
 func (q *Queries) GetUserByPhone(ctx context.Context, phone sql.NullString) (User, error) {
@@ -149,12 +171,19 @@ func (q *Queries) GetUserByPhone(ctx context.Context, phone sql.NullString) (Use
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TotpSecret,
+		&i.TotpPending,
+		pq.Array(&i.TotpBackup),
+		&i.IsPremium,
+		&i.PremiumUntil,
+		&i.LastSeenPrivacy,
+		&i.OnlinePrivacy,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata FROM users WHERE username =$1 AND is_deleted=FALSE
+SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE username =$1 AND is_deleted=FALSE
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -178,6 +207,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Metadata,
+		&i.TotpSecret,
+		&i.TotpPending,
+		pq.Array(&i.TotpBackup),
+		&i.IsPremium,
+		&i.PremiumUntil,
+		&i.LastSeenPrivacy,
+		&i.OnlinePrivacy,
 	)
 	return i, err
 }

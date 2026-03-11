@@ -20,3 +20,24 @@ UPDATE chat_members SET role = $3 WHERE chat_id =$1 AND user_id =$2;
 
 -- name: RemoveChatMember :exec
 DELETE FROM chat_members WHERE chat_id = $1 AND user_id =$2;
+
+-- name: GetPrivateChatBetweenUsers :one
+SELECT c.* FROM chats c
+JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = $1
+JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = $2
+WHERE c.type = 'private' AND c.is_deleted = FALSE
+LIMIT 1;
+
+-- name: UpdateChatUpdatedAt :exec
+UPDATE chats SET updated_at = NOW() WHERE id = $1;
+
+-- name: GetChatMember :one
+SELECT * FROM chat_members WHERE chat_id = $1 AND user_id = $2;
+
+-- name: DeleteChat :exec
+UPDATE chats SET is_deleted = TRUE WHERE id = $1;
+
+
+
+
+
