@@ -10,6 +10,7 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/sqlc-dev/pqtype"
 )
 
 const createMedia = `-- name: CreateMedia :one
@@ -153,6 +154,99 @@ func (q *Queries) GetPendingExpiredMedia(ctx context.Context) ([]Medium, error) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const getPendingMedia = `-- name: GetPendingMedia :many
+SELECT id, uploader_id, type, status, bucket, object_key, original_name, mime_type, size_bytes, width, height, duration_sec, thumb_key, waveform, blur_hash, created_at, expires_at FROM media WHERE status = 'uploaded' LIMIT 10
+`
+
+func (q *Queries) GetPendingMedia(ctx context.Context) ([]Medium, error) {
+	rows, err := q.db.QueryContext(ctx, getPendingMedia)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Medium
+	for rows.Next() {
+		var i Medium
+		if err := rows.Scan(
+			&i.ID,
+			&i.UploaderID,
+			&i.Type,
+			&i.Status,
+			&i.Bucket,
+			&i.ObjectKey,
+			&i.OriginalName,
+			&i.MimeType,
+			&i.SizeBytes,
+			&i.Width,
+			&i.Height,
+			&i.DurationSec,
+			&i.ThumbKey,
+			&i.Waveform,
+			&i.BlurHash,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setMediaFailed = `-- name: SetMediaFailed :exec
+UPDATE media SET status = 'failed' WHERE id = $1
+`
+
+func (q *Queries) SetMediaFailed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, setMediaFailed, id)
+	return err
+}
+
+const setMediaProcessed = `-- name: SetMediaProcessed :exec
+UPDATE media SET status = 'processed' WHERE id = $1
+`
+
+func (q *Queries) SetMediaProcessed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, setMediaProcessed, id)
+	return err
+}
+
+const setMediaProcessedWithThumb = `-- name: SetMediaProcessedWithThumb :exec
+UPDATE media SET status = 'processed', thumb_key = $2 WHERE id = $1
+`
+
+type SetMediaProcessedWithThumbParams struct {
+	ID       uuid.UUID      `json:"id"`
+	ThumbKey sql.NullString `json:"thumb_key"`
+}
+
+func (q *Queries) SetMediaProcessedWithThumb(ctx context.Context, arg SetMediaProcessedWithThumbParams) error {
+	_, err := q.db.ExecContext(ctx, setMediaProcessedWithThumb, arg.ID, arg.ThumbKey)
+	return err
+}
+
+const setMediaProcessedWithWaveform = `-- name: SetMediaProcessedWithWaveform :exec
+UPDATE media
+SET status = 'processed', waveform = $2
+WHERE id = $1
+`
+
+type SetMediaProcessedWithWaveformParams struct {
+	ID       uuid.UUID             `json:"id"`
+	Waveform pqtype.NullRawMessage `json:"waveform"`
+}
+
+func (q *Queries) SetMediaProcessedWithWaveform(ctx context.Context, arg SetMediaProcessedWithWaveformParams) error {
+	_, err := q.db.ExecContext(ctx, setMediaProcessedWithWaveform, arg.ID, arg.Waveform)
+	return err
 }
 
 const updateMediaStatus = `-- name: UpdateMediaStatus :one

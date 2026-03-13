@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -17,10 +18,10 @@ type MinIOClient struct {
 	publicHost string
 }
 
-func NewMinIOClient(endpoint, accessKey, secretKey, bucket string, useSSl bool) (*MinIOClient, error) {
+func NewMinIOClient(endpoint, accessKey, secretKey, bucket string, useSSL bool, publicHost string) (*MinIOClient, error) {
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: useSSl,
+		Secure: useSSL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed connect to MinIO:%w", err)
@@ -30,7 +31,6 @@ func NewMinIOClient(endpoint, accessKey, secretKey, bucket string, useSSl bool) 
 	if err != nil {
 		return nil, fmt.Errorf("error examination bucket:%w", err)
 	}
-
 	if !exists {
 		err = client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{
 			Region: "us-east-1",
@@ -42,7 +42,7 @@ func NewMinIOClient(endpoint, accessKey, secretKey, bucket string, useSSl bool) 
 	return &MinIOClient{
 		client:     client,
 		bucket:     bucket,
-		publicHost: fmt.Sprintf("http://%s", endpoint),
+		publicHost: publicHost, 
 	}, nil
 }
 
@@ -82,4 +82,32 @@ func (m *MinIOClient) DeleteObject(ctx context.Context, objectKey string) error 
 		return fmt.Errorf("error deleted file URL: %s: %w", objectKey, err)
 	}
 	return nil
+}
+
+func (m *MinIOClient) Download(ctx context.Context, objectKey string) ([]byte, error) {
+	obj, err := m.client.GetObject(ctx, m.bucket, objectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error download object: %w", err)
+	}
+	defer obj.Close()
+
+	data, err := io.ReadAll(obj)
+	if err != nil {
+		return nil, fmt.Errorf("error read object: %w", err)
+	}
+	return data, nil
+}
+
+func (m *MinIOClient) Upload(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error {
+	_, err := m.client.PutObject(ctx, m.bucket, objectKey, reader, size, minio.PutObjectOptions{
+		ContentType: contentType,
+	})
+	if err != nil {
+		return fmt.Errorf("error upload object: %w", err)
+	}
+	return nil
+}
+
+func (m *MinIOClient) PublicURL(objectKey string) string {
+	return fmt.Sprintf("%s/%s/%s", m.publicHost, m.bucket, objectKey)
 }

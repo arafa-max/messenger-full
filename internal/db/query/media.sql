@@ -41,3 +41,20 @@ WHERE id = $1;
 SELECT * FROM media
 WHERE status = 'pending'
 AND created_at < NOW() - INTERVAL '24 hours';
+
+-- name: GetPendingMedia :many
+SELECT * FROM media WHERE status = 'uploaded' LIMIT 10;
+
+-- name: SetMediaFailed :exec
+UPDATE media SET status = 'failed' WHERE id = $1;
+
+-- name: SetMediaProcessed :exec
+UPDATE media SET status = 'processed' WHERE id = $1;
+
+-- name: SetMediaProcessedWithThumb :exec
+UPDATE media SET status = 'processed', thumb_key = $2 WHERE id = $1;
+
+-- name: SetMediaProcessedWithWaveform :exec
+UPDATE media
+SET status = 'processed', waveform = $2
+WHERE id = $1;

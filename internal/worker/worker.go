@@ -4,17 +4,18 @@ import (
 	"context"
 	"log"
 	db "messenger/internal/db/sqlc"
+	"messenger/internal/storage"
 	"time"
 )
 
 type Worker struct {
-	q *db.Queries
+	q       *db.Queries
+	storage *storage.MinIOClient
 }
 
-func New(q *db.Queries) *Worker {
-	return &Worker{q: q}
+func New(q *db.Queries, s *storage.MinIOClient) *Worker {
+	return &Worker{q: q, storage: s}
 }
-
 func (w *Worker) Start(ctx context.Context) {
 	log.Println("Worker started")
 
@@ -39,6 +40,7 @@ func (w *Worker) run(ctx context.Context) {
 	w.deleteExpiredMessages(ctx)
 	w.sendScheduledMessage(ctx)
 	w.sendReminders(ctx)
+	w.processMedia(ctx) // ← новое
 }
 
 func (w *Worker) deleteExpiredMessages(ctx context.Context) {

@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  # ─── coturn — TURN/STUN сервер ──────────────────────────────
+  coturn:
+    image: coturn/coturn:latest
+    container_name: coturn
+    restart: unless-stopped
+    network_mode: host          # нужен host режим для UDP медиа портов
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro  # TLS сертификаты
+      - coturn_logs:/var/log
+    command: -c /etc/turnserver.conf
+
+volumes:
+  coturn_logs:

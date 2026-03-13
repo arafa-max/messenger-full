@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	db "messenger/internal/db/sqlc"
+	"messenger/internal/storage"
 	"messenger/internal/store"
 	"net/http"
 	"strconv"
@@ -14,10 +15,12 @@ import (
 
 type MessageHandler struct {
 	store *store.MessageStore
+	q     *db.Queries
+	minio *storage.MinIOClient
 }
 
-func NewMessageHandler(store *store.MessageStore) *MessageHandler {
-	return &MessageHandler{store: store}
+func NewMessageHandler(store *store.MessageStore, sqlDB *sql.DB, minio *storage.MinIOClient) *MessageHandler {
+	return &MessageHandler{store: store, q: db.New(sqlDB), minio: minio}
 }
 
 //--send
@@ -54,6 +57,27 @@ func (h *MessageHandler) Send(c *gin.Context) {
 	}
 	senderID := c.MustGet("user_id").(uuid.UUID)
 
+	// ─── Slow mode check ─────────────────────────────────────────
+	slowMode, err := h.q.GetChatSlowMode(c, chatID)
+	if err == nil && slowMode.Int32 > 0 {
+		lastMsgTime, err := h.q.GetLastMessageTime(c, db.GetLastMessageTimeParams{
+			ChatID:   chatID,
+			SenderID: senderID,
+		})
+		if err == nil && lastMsgTime.Valid {
+			elapsed := time.Since(lastMsgTime.Time)
+			cooldown := time.Duration(slowMode.Int32) * time.Second
+			if elapsed < cooldown {
+				remaining := int(cooldown.Seconds() - elapsed.Seconds())
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error":       "slow mode enabled",
+					"retry_after": remaining,
+				})
+				return
+			}
+		}
+	}
+
 	var req sendMessageReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -65,6 +89,7 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		Type:     sql.NullString{String: req.Type, Valid: true},
 		Content:  req.Content,
 	}
+
 	if req.ReplyToID != nil && *req.ReplyToID != "" {
 		if id, err := uuid.Parse(*req.ReplyToID); err == nil {
 			params.ReplyToID = uuid.NullUUID{UUID: id, Valid: true}
@@ -91,6 +116,8 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, toMessageResponse(msq))
+
+
 }
 
 //--Get
@@ -213,6 +240,18 @@ func (h *MessageHandler) DeleteForAll(c *gin.Context) {
 	if msg.SenderID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "cannot delete someone else message"})
 		return
+	}
+
+	// Удаляем медиа из MinIO если есть
+	if msg.MediaID.Valid {
+		media, err := h.q.GetMedia(c, msg.MediaID.UUID)
+		if err == nil {
+			_ = h.minio.DeleteObject(c, media.ObjectKey)
+			if media.ThumbKey.Valid {
+				_ = h.minio.DeleteObject(c, media.ThumbKey.String)
+			}
+			_ = h.q.DeleteMedia(c, media.ID)
+		}
 	}
 
 	if err := h.store.DeleteForAll(c, msgID, msg.ChatID); err != nil {

@@ -27,6 +27,120 @@ func (q *Queries) AddChatMember(ctx context.Context, arg AddChatMemberParams) er
 	return err
 }
 
+const addChatToCommunity = `-- name: AddChatToCommunity :exec
+UPDATE chats SET metadata = jsonb_set(metadata, '{community_id}', to_jsonb($2::text))
+WHERE id = $1
+`
+
+type AddChatToCommunityParams struct {
+	ID      uuid.UUID `json:"id"`
+	Column2 string    `json:"column_2"`
+}
+
+func (q *Queries) AddChatToCommunity(ctx context.Context, arg AddChatToCommunityParams) error {
+	_, err := q.db.ExecContext(ctx, addChatToCommunity, arg.ID, arg.Column2)
+	return err
+}
+
+const addChatToFolder = `-- name: AddChatToFolder :exec
+INSERT INTO chat_folder_items (folder_id, chat_id) VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type AddChatToFolderParams struct {
+	FolderID uuid.UUID `json:"folder_id"`
+	ChatID   uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) AddChatToFolder(ctx context.Context, arg AddChatToFolderParams) error {
+	_, err := q.db.ExecContext(ctx, addChatToFolder, arg.FolderID, arg.ChatID)
+	return err
+}
+
+const archiveChat = `-- name: ArchiveChat :exec
+UPDATE chat_members SET is_archived = TRUE WHERE chat_id = $1 AND user_id = $2
+`
+
+type ArchiveChatParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ArchiveChat(ctx context.Context, arg ArchiveChatParams) error {
+	_, err := q.db.ExecContext(ctx, archiveChat, arg.ChatID, arg.UserID)
+	return err
+}
+
+const banChatMember = `-- name: BanChatMember :exec
+UPDATE chat_members SET is_banned = TRUE WHERE chat_id = $1 AND user_id = $2
+`
+
+type BanChatMemberParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) BanChatMember(ctx context.Context, arg BanChatMemberParams) error {
+	_, err := q.db.ExecContext(ctx, banChatMember, arg.ChatID, arg.UserID)
+	return err
+}
+
+const closeTopic = `-- name: CloseTopic :exec
+UPDATE chat_topics SET is_closed = TRUE WHERE id = $1 AND chat_id = $2
+`
+
+type CloseTopicParams struct {
+	ID     uuid.UUID `json:"id"`
+	ChatID uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) CloseTopic(ctx context.Context, arg CloseTopicParams) error {
+	_, err := q.db.ExecContext(ctx, closeTopic, arg.ID, arg.ChatID)
+	return err
+}
+
+const createChannel = `-- name: CreateChannel :one
+INSERT INTO chats (type, name, username, description, owner_id, is_public)
+VALUES ('channel', $1, $2, $3, $4, $5) RETURNING id, type, name, username, avatar_url, description, owner_id, is_public, is_deleted, slow_mode, member_count, invite_link, created_at, updated_at, metadata
+`
+
+type CreateChannelParams struct {
+	Name        sql.NullString `json:"name"`
+	Username    sql.NullString `json:"username"`
+	Description sql.NullString `json:"description"`
+	OwnerID     uuid.NullUUID  `json:"owner_id"`
+	IsPublic    sql.NullBool   `json:"is_public"`
+}
+
+func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (Chat, error) {
+	row := q.db.QueryRowContext(ctx, createChannel,
+		arg.Name,
+		arg.Username,
+		arg.Description,
+		arg.OwnerID,
+		arg.IsPublic,
+	)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Name,
+		&i.Username,
+		&i.AvatarUrl,
+		&i.Description,
+		&i.OwnerID,
+		&i.IsPublic,
+		&i.IsDeleted,
+		&i.SlowMode,
+		&i.MemberCount,
+		&i.InviteLink,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Metadata,
+	)
+	return i, err
+}
+
 const createChat = `-- name: CreateChat :one
 INSERT INTO chats(type,name,owner_id,is_public)
 VALUES ($1,$2,$3,$4) RETURNING id, type, name, username, avatar_url, description, owner_id, is_public, is_deleted, slow_mode, member_count, invite_link, created_at, updated_at, metadata
@@ -67,6 +181,152 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 	return i, err
 }
 
+const createCommunity = `-- name: CreateCommunity :one
+INSERT INTO chats (type, name, username, description, owner_id, is_public)
+VALUES ('community', $1, $2, $3, $4, $5) RETURNING id, type, name, username, avatar_url, description, owner_id, is_public, is_deleted, slow_mode, member_count, invite_link, created_at, updated_at, metadata
+`
+
+type CreateCommunityParams struct {
+	Name        sql.NullString `json:"name"`
+	Username    sql.NullString `json:"username"`
+	Description sql.NullString `json:"description"`
+	OwnerID     uuid.NullUUID  `json:"owner_id"`
+	IsPublic    sql.NullBool   `json:"is_public"`
+}
+
+func (q *Queries) CreateCommunity(ctx context.Context, arg CreateCommunityParams) (Chat, error) {
+	row := q.db.QueryRowContext(ctx, createCommunity,
+		arg.Name,
+		arg.Username,
+		arg.Description,
+		arg.OwnerID,
+		arg.IsPublic,
+	)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Name,
+		&i.Username,
+		&i.AvatarUrl,
+		&i.Description,
+		&i.OwnerID,
+		&i.IsPublic,
+		&i.IsDeleted,
+		&i.SlowMode,
+		&i.MemberCount,
+		&i.InviteLink,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Metadata,
+	)
+	return i, err
+}
+
+const createFolder = `-- name: CreateFolder :one
+INSERT INTO chat_folders (user_id, name, emoji, position)
+VALUES ($1, $2, $3, $4) RETURNING id, user_id, name, emoji, position, created_at
+`
+
+type CreateFolderParams struct {
+	UserID   uuid.UUID      `json:"user_id"`
+	Name     string         `json:"name"`
+	Emoji    sql.NullString `json:"emoji"`
+	Position sql.NullInt32  `json:"position"`
+}
+
+func (q *Queries) CreateFolder(ctx context.Context, arg CreateFolderParams) (ChatFolder, error) {
+	row := q.db.QueryRowContext(ctx, createFolder,
+		arg.UserID,
+		arg.Name,
+		arg.Emoji,
+		arg.Position,
+	)
+	var i ChatFolder
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Emoji,
+		&i.Position,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createInviteLink = `-- name: CreateInviteLink :one
+INSERT INTO invite_links (code, chat_id, created_by, max_uses, expires_at)
+VALUES ($1, $2, $3, $4, $5) RETURNING id, code, chat_id, created_by, max_uses, uses_count, expires_at, is_revoked, created_at
+`
+
+type CreateInviteLinkParams struct {
+	Code      string        `json:"code"`
+	ChatID    uuid.UUID     `json:"chat_id"`
+	CreatedBy uuid.UUID     `json:"created_by"`
+	MaxUses   sql.NullInt32 `json:"max_uses"`
+	ExpiresAt sql.NullTime  `json:"expires_at"`
+}
+
+func (q *Queries) CreateInviteLink(ctx context.Context, arg CreateInviteLinkParams) (InviteLink, error) {
+	row := q.db.QueryRowContext(ctx, createInviteLink,
+		arg.Code,
+		arg.ChatID,
+		arg.CreatedBy,
+		arg.MaxUses,
+		arg.ExpiresAt,
+	)
+	var i InviteLink
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.ChatID,
+		&i.CreatedBy,
+		&i.MaxUses,
+		&i.UsesCount,
+		&i.ExpiresAt,
+		&i.IsRevoked,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createTopic = `-- name: CreateTopic :one
+INSERT INTO chat_topics (chat_id, name, icon_emoji, icon_color, created_by)
+VALUES ($1, $2, $3, $4, $5) RETURNING id, chat_id, name, icon_emoji, icon_color, created_by, is_closed, is_hidden, message_count, created_at
+`
+
+type CreateTopicParams struct {
+	ChatID    uuid.UUID      `json:"chat_id"`
+	Name      string         `json:"name"`
+	IconEmoji sql.NullString `json:"icon_emoji"`
+	IconColor sql.NullString `json:"icon_color"`
+	CreatedBy uuid.NullUUID  `json:"created_by"`
+}
+
+func (q *Queries) CreateTopic(ctx context.Context, arg CreateTopicParams) (ChatTopic, error) {
+	row := q.db.QueryRowContext(ctx, createTopic,
+		arg.ChatID,
+		arg.Name,
+		arg.IconEmoji,
+		arg.IconColor,
+		arg.CreatedBy,
+	)
+	var i ChatTopic
+	err := row.Scan(
+		&i.ID,
+		&i.ChatID,
+		&i.Name,
+		&i.IconEmoji,
+		&i.IconColor,
+		&i.CreatedBy,
+		&i.IsClosed,
+		&i.IsHidden,
+		&i.MessageCount,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const deleteChat = `-- name: DeleteChat :exec
 UPDATE chats SET is_deleted = TRUE WHERE id = $1
 `
@@ -74,6 +334,79 @@ UPDATE chats SET is_deleted = TRUE WHERE id = $1
 func (q *Queries) DeleteChat(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, deleteChat, id)
 	return err
+}
+
+const deleteFolder = `-- name: DeleteFolder :exec
+DELETE FROM chat_folders WHERE id = $1 AND user_id = $2
+`
+
+type DeleteFolderParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteFolder(ctx context.Context, arg DeleteFolderParams) error {
+	_, err := q.db.ExecContext(ctx, deleteFolder, arg.ID, arg.UserID)
+	return err
+}
+
+const deleteTopic = `-- name: DeleteTopic :exec
+DELETE FROM chat_topics WHERE id = $1 AND chat_id = $2
+`
+
+type DeleteTopicParams struct {
+	ID     uuid.UUID `json:"id"`
+	ChatID uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) DeleteTopic(ctx context.Context, arg DeleteTopicParams) error {
+	_, err := q.db.ExecContext(ctx, deleteTopic, arg.ID, arg.ChatID)
+	return err
+}
+
+const getArchivedChats = `-- name: GetArchivedChats :many
+SELECT c.id, c.type, c.name, c.username, c.avatar_url, c.description, c.owner_id, c.is_public, c.is_deleted, c.slow_mode, c.member_count, c.invite_link, c.created_at, c.updated_at, c.metadata FROM chats c
+JOIN chat_members cm ON c.id = cm.chat_id
+WHERE cm.user_id = $1 AND cm.is_archived = TRUE AND c.is_deleted = FALSE
+`
+
+func (q *Queries) GetArchivedChats(ctx context.Context, userID uuid.UUID) ([]Chat, error) {
+	rows, err := q.db.QueryContext(ctx, getArchivedChats, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Chat
+	for rows.Next() {
+		var i Chat
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Name,
+			&i.Username,
+			&i.AvatarUrl,
+			&i.Description,
+			&i.OwnerID,
+			&i.IsPublic,
+			&i.IsDeleted,
+			&i.SlowMode,
+			&i.MemberCount,
+			&i.InviteLink,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getChatByID = `-- name: GetChatByID :one
@@ -104,7 +437,7 @@ func (q *Queries) GetChatByID(ctx context.Context, id uuid.UUID) (Chat, error) {
 }
 
 const getChatMember = `-- name: GetChatMember :one
-SELECT chat_id, user_id, role, muted_until, is_banned, last_read_at, joined_at, metadata FROM chat_members WHERE chat_id = $1 AND user_id = $2
+SELECT chat_id, user_id, role, muted_until, is_banned, last_read_at, joined_at, metadata, is_archived FROM chat_members WHERE chat_id = $1 AND user_id = $2
 `
 
 type GetChatMemberParams struct {
@@ -124,12 +457,13 @@ func (q *Queries) GetChatMember(ctx context.Context, arg GetChatMemberParams) (C
 		&i.LastReadAt,
 		&i.JoinedAt,
 		&i.Metadata,
+		&i.IsArchived,
 	)
 	return i, err
 }
 
 const getChatMembers = `-- name: GetChatMembers :many
-SELECT chat_id, user_id, role, muted_until, is_banned, last_read_at, joined_at, metadata FROM chat_members WHERE chat_id =$1 AND is_banned =FALSE
+SELECT chat_id, user_id, role, muted_until, is_banned, last_read_at, joined_at, metadata, is_archived FROM chat_members WHERE chat_id =$1 AND is_banned =FALSE
 `
 
 func (q *Queries) GetChatMembers(ctx context.Context, chatID uuid.UUID) ([]ChatMember, error) {
@@ -150,6 +484,220 @@ func (q *Queries) GetChatMembers(ctx context.Context, chatID uuid.UUID) ([]ChatM
 			&i.LastReadAt,
 			&i.JoinedAt,
 			&i.Metadata,
+			&i.IsArchived,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getChatSlowMode = `-- name: GetChatSlowMode :one
+SELECT slow_mode FROM chats WHERE id = $1
+`
+
+func (q *Queries) GetChatSlowMode(ctx context.Context, id uuid.UUID) (sql.NullInt32, error) {
+	row := q.db.QueryRowContext(ctx, getChatSlowMode, id)
+	var slow_mode sql.NullInt32
+	err := row.Scan(&slow_mode)
+	return slow_mode, err
+}
+
+const getChatTopics = `-- name: GetChatTopics :many
+SELECT id, chat_id, name, icon_emoji, icon_color, created_by, is_closed, is_hidden, message_count, created_at FROM chat_topics WHERE chat_id = $1 AND is_hidden = FALSE
+ORDER BY created_at ASC
+`
+
+func (q *Queries) GetChatTopics(ctx context.Context, chatID uuid.UUID) ([]ChatTopic, error) {
+	rows, err := q.db.QueryContext(ctx, getChatTopics, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatTopic
+	for rows.Next() {
+		var i ChatTopic
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.Name,
+			&i.IconEmoji,
+			&i.IconColor,
+			&i.CreatedBy,
+			&i.IsClosed,
+			&i.IsHidden,
+			&i.MessageCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCommunityChats = `-- name: GetCommunityChats :many
+SELECT id, type, name, username, avatar_url, description, owner_id, is_public, is_deleted, slow_mode, member_count, invite_link, created_at, updated_at, metadata FROM chats
+WHERE metadata->>'community_id' = $1::text AND is_deleted = FALSE
+`
+
+func (q *Queries) GetCommunityChats(ctx context.Context, dollar_1 string) ([]Chat, error) {
+	rows, err := q.db.QueryContext(ctx, getCommunityChats, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Chat
+	for rows.Next() {
+		var i Chat
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Name,
+			&i.Username,
+			&i.AvatarUrl,
+			&i.Description,
+			&i.OwnerID,
+			&i.IsPublic,
+			&i.IsDeleted,
+			&i.SlowMode,
+			&i.MemberCount,
+			&i.InviteLink,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getFolderChats = `-- name: GetFolderChats :many
+SELECT c.id, c.type, c.name, c.username, c.avatar_url, c.description, c.owner_id, c.is_public, c.is_deleted, c.slow_mode, c.member_count, c.invite_link, c.created_at, c.updated_at, c.metadata FROM chats c
+JOIN chat_folder_items cfi ON c.id = cfi.chat_id
+WHERE cfi.folder_id = $1 AND c.is_deleted = FALSE
+`
+
+func (q *Queries) GetFolderChats(ctx context.Context, folderID uuid.UUID) ([]Chat, error) {
+	rows, err := q.db.QueryContext(ctx, getFolderChats, folderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Chat
+	for rows.Next() {
+		var i Chat
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Name,
+			&i.Username,
+			&i.AvatarUrl,
+			&i.Description,
+			&i.OwnerID,
+			&i.IsPublic,
+			&i.IsDeleted,
+			&i.SlowMode,
+			&i.MemberCount,
+			&i.InviteLink,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getInviteByCode = `-- name: GetInviteByCode :one
+SELECT id, code, chat_id, created_by, max_uses, uses_count, expires_at, is_revoked, created_at FROM invite_links WHERE code = $1 AND is_revoked = FALSE
+`
+
+func (q *Queries) GetInviteByCode(ctx context.Context, code string) (InviteLink, error) {
+	row := q.db.QueryRowContext(ctx, getInviteByCode, code)
+	var i InviteLink
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.ChatID,
+		&i.CreatedBy,
+		&i.MaxUses,
+		&i.UsesCount,
+		&i.ExpiresAt,
+		&i.IsRevoked,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getLastMessageTime = `-- name: GetLastMessageTime :one
+SELECT created_at FROM messages
+WHERE chat_id = $1 AND sender_id = $2 AND is_deleted = FALSE
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetLastMessageTimeParams struct {
+	ChatID   uuid.UUID `json:"chat_id"`
+	SenderID uuid.UUID `json:"sender_id"`
+}
+
+func (q *Queries) GetLastMessageTime(ctx context.Context, arg GetLastMessageTimeParams) (sql.NullTime, error) {
+	row := q.db.QueryRowContext(ctx, getLastMessageTime, arg.ChatID, arg.SenderID)
+	var created_at sql.NullTime
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
+const getMyFolders = `-- name: GetMyFolders :many
+SELECT id, user_id, name, emoji, position, created_at FROM chat_folders WHERE user_id = $1 ORDER BY position ASC
+`
+
+func (q *Queries) GetMyFolders(ctx context.Context, userID uuid.UUID) ([]ChatFolder, error) {
+	rows, err := q.db.QueryContext(ctx, getMyFolders, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatFolder
+	for rows.Next() {
+		var i ChatFolder
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.Emoji,
+			&i.Position,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -200,6 +748,58 @@ func (q *Queries) GetPrivateChatBetweenUsers(ctx context.Context, arg GetPrivate
 	return i, err
 }
 
+const getPublicChats = `-- name: GetPublicChats :many
+SELECT id, type, name, username, avatar_url, description, owner_id, is_public, is_deleted, slow_mode, member_count, invite_link, created_at, updated_at, metadata FROM chats
+WHERE is_public = TRUE AND is_deleted = FALSE AND type = $1
+ORDER BY member_count DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetPublicChatsParams struct {
+	Type   string `json:"type"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
+
+func (q *Queries) GetPublicChats(ctx context.Context, arg GetPublicChatsParams) ([]Chat, error) {
+	rows, err := q.db.QueryContext(ctx, getPublicChats, arg.Type, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Chat
+	for rows.Next() {
+		var i Chat
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Name,
+			&i.Username,
+			&i.AvatarUrl,
+			&i.Description,
+			&i.OwnerID,
+			&i.IsPublic,
+			&i.IsDeleted,
+			&i.SlowMode,
+			&i.MemberCount,
+			&i.InviteLink,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserChats = `-- name: GetUserChats :many
 SELECT c.id, c.type, c.name, c.username, c.avatar_url, c.description, c.owner_id, c.is_public, c.is_deleted, c.slow_mode, c.member_count, c.invite_link, c.created_at, c.updated_at, c.metadata FROM chats c JOIN chat_members cm ON c.id = cm.chat_id
 WHERE cm.user_id =$1 AND c.is_deleted =FALSE ORDER BY c.updated_at DESC
@@ -244,6 +844,62 @@ func (q *Queries) GetUserChats(ctx context.Context, userID uuid.UUID) ([]Chat, e
 	return items, nil
 }
 
+const incrementInviteUses = `-- name: IncrementInviteUses :exec
+UPDATE invite_links SET uses_count = uses_count + 1 WHERE code = $1
+`
+
+func (q *Queries) IncrementInviteUses(ctx context.Context, code string) error {
+	_, err := q.db.ExecContext(ctx, incrementInviteUses, code)
+	return err
+}
+
+const incrementMessageViews = `-- name: IncrementMessageViews :exec
+UPDATE messages SET views_count = views_count + 1 WHERE id = $1
+`
+
+func (q *Queries) IncrementMessageViews(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, incrementMessageViews, id)
+	return err
+}
+
+const muteChatMember = `-- name: MuteChatMember :exec
+UPDATE chat_members SET muted_until = $3 WHERE chat_id = $1 AND user_id = $2
+`
+
+type MuteChatMemberParams struct {
+	ChatID     uuid.UUID    `json:"chat_id"`
+	UserID     uuid.UUID    `json:"user_id"`
+	MutedUntil sql.NullTime `json:"muted_until"`
+}
+
+func (q *Queries) MuteChatMember(ctx context.Context, arg MuteChatMemberParams) error {
+	_, err := q.db.ExecContext(ctx, muteChatMember, arg.ChatID, arg.UserID, arg.MutedUntil)
+	return err
+}
+
+const removeChatFromCommunity = `-- name: RemoveChatFromCommunity :exec
+UPDATE chats SET metadata = metadata - 'community_id' WHERE id = $1
+`
+
+func (q *Queries) RemoveChatFromCommunity(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, removeChatFromCommunity, id)
+	return err
+}
+
+const removeChatFromFolder = `-- name: RemoveChatFromFolder :exec
+DELETE FROM chat_folder_items WHERE folder_id = $1 AND chat_id = $2
+`
+
+type RemoveChatFromFolderParams struct {
+	FolderID uuid.UUID `json:"folder_id"`
+	ChatID   uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) RemoveChatFromFolder(ctx context.Context, arg RemoveChatFromFolderParams) error {
+	_, err := q.db.ExecContext(ctx, removeChatFromFolder, arg.FolderID, arg.ChatID)
+	return err
+}
+
 const removeChatMember = `-- name: RemoveChatMember :exec
 DELETE FROM chat_members WHERE chat_id = $1 AND user_id =$2
 `
@@ -255,6 +911,71 @@ type RemoveChatMemberParams struct {
 
 func (q *Queries) RemoveChatMember(ctx context.Context, arg RemoveChatMemberParams) error {
 	_, err := q.db.ExecContext(ctx, removeChatMember, arg.ChatID, arg.UserID)
+	return err
+}
+
+const revokeInviteLink = `-- name: RevokeInviteLink :exec
+UPDATE invite_links SET is_revoked = TRUE WHERE code = $1 AND chat_id = $2
+`
+
+type RevokeInviteLinkParams struct {
+	Code   string    `json:"code"`
+	ChatID uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) RevokeInviteLink(ctx context.Context, arg RevokeInviteLinkParams) error {
+	_, err := q.db.ExecContext(ctx, revokeInviteLink, arg.Code, arg.ChatID)
+	return err
+}
+
+const unarchiveChat = `-- name: UnarchiveChat :exec
+UPDATE chat_members SET is_archived = FALSE WHERE chat_id = $1 AND user_id = $2
+`
+
+type UnarchiveChatParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) UnarchiveChat(ctx context.Context, arg UnarchiveChatParams) error {
+	_, err := q.db.ExecContext(ctx, unarchiveChat, arg.ChatID, arg.UserID)
+	return err
+}
+
+const unbanChatMember = `-- name: UnbanChatMember :exec
+UPDATE chat_members SET is_banned = FALSE WHERE chat_id = $1 AND user_id = $2
+`
+
+type UnbanChatMemberParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) UnbanChatMember(ctx context.Context, arg UnbanChatMemberParams) error {
+	_, err := q.db.ExecContext(ctx, unbanChatMember, arg.ChatID, arg.UserID)
+	return err
+}
+
+const unmuteChatMember = `-- name: UnmuteChatMember :exec
+UPDATE chat_members SET muted_until = NULL WHERE chat_id = $1 AND user_id = $2
+`
+
+type UnmuteChatMemberParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) UnmuteChatMember(ctx context.Context, arg UnmuteChatMemberParams) error {
+	_, err := q.db.ExecContext(ctx, unmuteChatMember, arg.ChatID, arg.UserID)
+	return err
+}
+
+const unverifyChat = `-- name: UnverifyChat :exec
+UPDATE chats SET metadata = jsonb_set(metadata, '{is_verified}', 'false') WHERE id = $1
+`
+
+func (q *Queries) UnverifyChat(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, unverifyChat, id)
 	return err
 }
 
@@ -279,5 +1000,28 @@ UPDATE chats SET updated_at = NOW() WHERE id = $1
 
 func (q *Queries) UpdateChatUpdatedAt(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, updateChatUpdatedAt, id)
+	return err
+}
+
+const updateChatVisibility = `-- name: UpdateChatVisibility :exec
+UPDATE chats SET is_public = $2, updated_at = NOW() WHERE id = $1
+`
+
+type UpdateChatVisibilityParams struct {
+	ID       uuid.UUID    `json:"id"`
+	IsPublic sql.NullBool `json:"is_public"`
+}
+
+func (q *Queries) UpdateChatVisibility(ctx context.Context, arg UpdateChatVisibilityParams) error {
+	_, err := q.db.ExecContext(ctx, updateChatVisibility, arg.ID, arg.IsPublic)
+	return err
+}
+
+const verifyChat = `-- name: VerifyChat :exec
+UPDATE chats SET metadata = jsonb_set(metadata, '{is_verified}', 'true') WHERE id = $1
+`
+
+func (q *Queries) VerifyChat(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, verifyChat, id)
 	return err
 }

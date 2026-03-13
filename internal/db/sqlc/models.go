@@ -202,6 +202,7 @@ type ChatMember struct {
 	LastReadAt sql.NullTime          `json:"last_read_at"`
 	JoinedAt   sql.NullTime          `json:"joined_at"`
 	Metadata   pqtype.NullRawMessage `json:"metadata"`
+	IsArchived sql.NullBool          `json:"is_archived"`
 }
 
 type ChatTopic struct {
@@ -241,16 +242,6 @@ type Device struct {
 	IsActive   sql.NullBool          `json:"is_active"`
 	CreatedAt  sql.NullTime          `json:"created_at"`
 	Metadata   pqtype.NullRawMessage `json:"metadata"`
-}
-
-type EncryptionKey struct {
-	ID        uuid.UUID      `json:"id"`
-	UserID    uuid.UUID      `json:"user_id"`
-	DeviceID  uuid.NullUUID  `json:"device_id"`
-	PublicKey string         `json:"public_key"`
-	KeyType   sql.NullString `json:"key_type"`
-	IsUsed    sql.NullBool   `json:"is_used"`
-	CreatedAt sql.NullTime   `json:"created_at"`
 }
 
 type IdentityKey struct {

@@ -2,13 +2,14 @@ package handler
 
 import (
 	"database/sql"
+	"log"
 	db "messenger/internal/db/sqlc"
 	"messenger/internal/storage"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
-"log"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -82,7 +83,7 @@ func (h *MediaHandler) RequestUpload(c *gin.Context) {
 		MimeType:     info.mime,
 	})
 	if err != nil {
-		    log.Printf("❌ CreateMedia error: %v", err)  // ← добавь это
+		log.Printf("❌ CreateMedia error: %v", err) // ← добавь это
 
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error saving in BD"})
 		return
@@ -134,7 +135,9 @@ func (h *MediaHandler) ConfirmUpload(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"media_id": media.ID.String(),
-		"status":   media.Status,
+		"media_id":  media.ID.String(),
+		"status":    media.Status,
+		"url":       h.minio.PublicURL(media.ObjectKey),
+		"thumb_url": h.minio.PublicURL(media.ThumbKey.String),
 	})
 }

@@ -13,14 +13,16 @@ type Config struct {
 	JWT      JWTConfig
 	Redis    RedisConfig
 	MinIO    MinIOConfig
+	TURN     TURNConfig
 	Env      string
 }
 type MinIOConfig struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	Bucket    string
-	UseSSL    bool
+	Endpoint   string
+	AccessKey  string
+	SecretKey  string
+	Bucket     string
+	UseSSL     bool
+	PublicHost string
 }
 
 type JWTConfig struct {
@@ -55,6 +57,13 @@ func (d DatabaseConfig) DSN() string {
 type RedisConfig struct {
 	URL string
 }
+type TURNConfig struct {
+	Host       string `env:"TURN_HOST"        envDefault:"turn.yourdomain.com"`
+	Port       int    `env:"TURN_PORT"        envDefault:"3478"`
+	TLSPort    int    `env:"TURN_TLS_PORT"    envDefault:"5349"`
+	AuthSecret string `env:"TURN_AUTH_SECRET" envDefault:""`
+	TTL        int    `env:"TURN_TTL"         envDefault:"86400"`
+}
 
 func Load() *Config {
 	_ = godotenv.Load()
@@ -82,11 +91,19 @@ func Load() *Config {
 			URL: getEnv("REDIS_URL", ""),
 		},
 		MinIO: MinIOConfig{
-			Endpoint:  getEnv("MINIO_ENDPOINT", ""),
-			AccessKey: getEnv("MINIO_ACCESS_KEY", ""),
-			SecretKey: getEnv("MINIO_SECRET_KEY", ""),
-			Bucket:    getEnv("MINIO_BUCKET", ""),
-			UseSSL:    getEnvBool("MINIO_USE_SSL", false),
+			Endpoint:   getEnv("MINIO_ENDPOINT", ""),
+			AccessKey:  getEnv("MINIO_ACCESS_KEY", ""),
+			SecretKey:  getEnv("MINIO_SECRET_KEY", ""),
+			Bucket:     getEnv("MINIO_BUCKET", ""),
+			UseSSL:     getEnvBool("MINIO_USE_SSL", false),
+			PublicHost: getEnv("MINIO_PUBLIC_HOST", "http://"+getEnv("MINIO_ENDPOINT", "localhost:9000")),
+		},
+		TURN: TURNConfig{
+			Host:       getEnv("TURN_HOST", "turn.yourdomain.com"),
+			Port:       getEnvInt("TURN_PORT", 3478),
+			TLSPort:    getEnvInt("TURN_TLS_PORT", 5349),
+			AuthSecret: getEnv("TURN_AUTH_SECRET", ""),
+			TTL:        getEnvInt("TURN_TTL", 86400),
 		},
 	}
 }
