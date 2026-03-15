@@ -7,19 +7,29 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type Querier interface {
+	AddChatLabel(ctx context.Context, arg AddChatLabelParams) (ChatLabel, error)
 	AddChatMember(ctx context.Context, arg AddChatMemberParams) error
 	AddChatToCommunity(ctx context.Context, arg AddChatToCommunityParams) error
 	AddChatToFolder(ctx context.Context, arg AddChatToFolderParams) error
+	AddCloseFriend(ctx context.Context, arg AddCloseFriendParams) error
+	AddEmojiKeyword(ctx context.Context, arg AddEmojiKeywordParams) error
 	AddReaction(ctx context.Context, arg AddReactionParams) error
+	AddStickerToPack(ctx context.Context, arg AddStickerToPackParams) (Sticker, error)
 	ArchiveChat(ctx context.Context, arg ArchiveChatParams) error
+	ArchiveStory(ctx context.Context, arg ArchiveStoryParams) error
 	BanChatMember(ctx context.Context, arg BanChatMemberParams) error
+	CleanupExpiredStories(ctx context.Context) error
 	CloseTopic(ctx context.Context, arg CloseTopicParams) error
 	CountAvailableOneTimePreKeys(ctx context.Context, arg CountAvailableOneTimePreKeysParams) (int64, error)
+	// internal/db/query/bots.sql
+	CreateBot(ctx context.Context, arg CreateBotParams) (Bot, error)
+	CreateBotCommand(ctx context.Context, arg CreateBotCommandParams) error
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (Chat, error)
 	CreateChat(ctx context.Context, arg CreateChatParams) (Chat, error)
 	CreateCommunity(ctx context.Context, arg CreateCommunityParams) (Chat, error)
@@ -29,13 +39,19 @@ type Querier interface {
 	CreateMedia(ctx context.Context, arg CreateMediaParams) (Medium, error)
 	CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error)
 	CreateMessageStatus(ctx context.Context, arg CreateMessageStatusParams) error
+	CreatePayment(ctx context.Context, arg CreatePaymentParams) (Payment, error)
 	CreateQuickReply(ctx context.Context, arg CreateQuickReplyParams) (QuickReply, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	CreateStickerPack(ctx context.Context, arg CreateStickerPackParams) (StickerPack, error)
+	CreateStory(ctx context.Context, arg CreateStoryParams) (Story, error)
 	CreateTopic(ctx context.Context, arg CreateTopicParams) (ChatTopic, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeactivateBot(ctx context.Context, arg DeactivateBotParams) error
 	DeactivateDevice(ctx context.Context, id uuid.UUID) error
 	DeleteAllUserSessions(ctx context.Context, userID uuid.UUID) error
+	DeleteBotCommand(ctx context.Context, arg DeleteBotCommandParams) error
 	DeleteChat(ctx context.Context, id uuid.UUID) error
+	DeleteChatLabel(ctx context.Context, arg DeleteChatLabelParams) error
 	DeleteDevice(ctx context.Context, id uuid.UUID) error
 	DeleteExpiredMessages(ctx context.Context) error
 	DeleteFolder(ctx context.Context, arg DeleteFolderParams) error
@@ -45,60 +61,98 @@ type Querier interface {
 	DeleteOldSignedPreKeys(ctx context.Context, arg DeleteOldSignedPreKeysParams) error
 	DeleteQuickReply(ctx context.Context, arg DeleteQuickReplyParams) error
 	DeleteSession(ctx context.Context, refreshToken string) error
+	DeleteStory(ctx context.Context, arg DeleteStoryParams) error
 	DeleteTopic(ctx context.Context, arg DeleteTopicParams) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
 	EditMessage(ctx context.Context, arg EditMessageParams) (Message, error)
 	ForwardMessage(ctx context.Context, arg ForwardMessageParams) (Message, error)
+	GetActiveStories(ctx context.Context, userID uuid.UUID) ([]GetActiveStoriesRow, error)
 	GetAndUseOneTimePreKey(ctx context.Context, arg GetAndUseOneTimePreKeyParams) (OneTimePrekey, error)
+	GetAnimatedEmoji(ctx context.Context, emoji string) (AnimatedEmoji, error)
+	// Получить несколько эмодзи за раз (для предзагрузки)
+	GetAnimatedEmojiBatch(ctx context.Context, dollar_1 []string) ([]AnimatedEmoji, error)
 	GetArchivedChats(ctx context.Context, userID uuid.UUID) ([]Chat, error)
+	GetArchivedStories(ctx context.Context, userID uuid.UUID) ([]Story, error)
+	GetBotByID(ctx context.Context, id uuid.UUID) (Bot, error)
+	GetBotByToken(ctx context.Context, token string) (Bot, error)
+	GetBotCommands(ctx context.Context, botID uuid.UUID) ([]BotCommand, error)
+	GetBotPayments(ctx context.Context, arg GetBotPaymentsParams) ([]Payment, error)
 	GetChatByID(ctx context.Context, id uuid.UUID) (Chat, error)
+	GetChatLabels(ctx context.Context, userID uuid.UUID) ([]ChatLabel, error)
 	GetChatMember(ctx context.Context, arg GetChatMemberParams) (ChatMember, error)
 	GetChatMembers(ctx context.Context, chatID uuid.UUID) ([]ChatMember, error)
 	GetChatMessages(ctx context.Context, arg GetChatMessagesParams) ([]Message, error)
 	GetChatSlowMode(ctx context.Context, id uuid.UUID) (sql.NullInt32, error)
 	GetChatTopics(ctx context.Context, chatID uuid.UUID) ([]ChatTopic, error)
+	GetCloseFriends(ctx context.Context, userID uuid.UUID) ([]GetCloseFriendsRow, error)
 	GetCommunityChats(ctx context.Context, dollar_1 string) ([]Chat, error)
 	GetDeviceByID(ctx context.Context, id uuid.UUID) (Device, error)
+	// Ищет эмодзи по тексту (для inline suggestions при вводе обычного текста)
+	// Возвращает уникальные эмодзи, отсортированные по весу
+	GetEmojiByKeyword(ctx context.Context, dollar_1 sql.NullString) ([]GetEmojiByKeywordRow, error)
 	GetFolderChats(ctx context.Context, folderID uuid.UUID) ([]Chat, error)
 	GetIdentityKey(ctx context.Context, arg GetIdentityKeyParams) (IdentityKey, error)
 	GetIdentityKeysByUser(ctx context.Context, userID uuid.UUID) ([]IdentityKey, error)
 	GetInviteByCode(ctx context.Context, code string) (InviteLink, error)
 	GetKeyBundle(ctx context.Context, arg GetKeyBundleParams) (KeyBundle, error)
 	GetKeyBundlesByUser(ctx context.Context, userID uuid.UUID) ([]KeyBundle, error)
-	GetLastMessageTime(ctx context.Context, arg GetLastMessageTimeParams) (sql.NullTime, error)
+	GetLastMessageTime(ctx context.Context, arg GetLastMessageTimeParams) (time.Time, error)
 	GetMedia(ctx context.Context, id uuid.UUID) (Medium, error)
 	GetMessageByID(ctx context.Context, id uuid.UUID) (Message, error)
 	GetMessageReactions(ctx context.Context, messageID uuid.UUID) ([]GetMessageReactionsRow, error)
+	GetMyBots(ctx context.Context, ownerID uuid.UUID) ([]Bot, error)
 	GetMyFolders(ctx context.Context, userID uuid.UUID) ([]ChatFolder, error)
+	GetPackStickers(ctx context.Context, packID uuid.UUID) ([]GetPackStickersRow, error)
+	GetPayment(ctx context.Context, id uuid.UUID) (Payment, error)
+	GetPaymentByStripeID(ctx context.Context, stripeID string) (Payment, error)
 	GetPendingExpiredMedia(ctx context.Context) ([]Medium, error)
 	GetPendingMedia(ctx context.Context) ([]Medium, error)
 	GetPendingReminders(ctx context.Context) ([]MessageReminder, error)
 	GetPinnedMessages(ctx context.Context, chatID uuid.UUID) ([]Message, error)
+	GetPremiumSettings(ctx context.Context, userID uuid.UUID) (PremiumSetting, error)
 	GetPrivateChatBetweenUsers(ctx context.Context, arg GetPrivateChatBetweenUsersParams) (Chat, error)
 	GetPublicChats(ctx context.Context, arg GetPublicChatsParams) ([]Chat, error)
+	GetPublicStickerPacks(ctx context.Context) ([]GetPublicStickerPacksRow, error)
 	GetQuickReplies(ctx context.Context, userID uuid.UUID) ([]QuickReply, error)
 	GetSavedMessages(ctx context.Context, arg GetSavedMessagesParams) ([]Message, error)
 	GetScheduledMessages(ctx context.Context) ([]Message, error)
 	GetSessionByToken(ctx context.Context, refreshToken string) (Session, error)
 	GetSignedPreKey(ctx context.Context, arg GetSignedPreKeyParams) (SignedPrekey, error)
+	// Используется для inline suggestions: клиент присылает точный эмодзи
+	// Сначала стикеры из установленных паков пользователя, потом остальные
+	GetStickersByEmoji(ctx context.Context, arg GetStickersByEmojiParams) ([]GetStickersByEmojiRow, error)
+	GetStoriesFeed(ctx context.Context, viewerID uuid.UUID) ([]GetStoriesFeedRow, error)
+	GetStoryReactions(ctx context.Context, storyID uuid.UUID) ([]GetStoryReactionsRow, error)
+	GetStoryViewers(ctx context.Context, storyID uuid.UUID) ([]GetStoryViewersRow, error)
+	GetSubscriptionByUserID(ctx context.Context, userID uuid.UUID) (Subscription, error)
+	GetUnprocessedUpdates(ctx context.Context, botID uuid.UUID) ([]BotUpdate, error)
 	GetUserByEmail(ctx context.Context, email sql.NullString) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByPhone(ctx context.Context, phone sql.NullString) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserChats(ctx context.Context, userID uuid.UUID) ([]Chat, error)
 	GetUserDevices(ctx context.Context, userID uuid.UUID) (Device, error)
+	GetUserPayments(ctx context.Context, arg GetUserPaymentsParams) ([]Payment, error)
 	GetUserReaction(ctx context.Context, arg GetUserReactionParams) (string, error)
+	GetUserStickerPacks(ctx context.Context, userID uuid.UUID) ([]GetUserStickerPacksRow, error)
 	IncrementInviteUses(ctx context.Context, code string) error
 	IncrementMessageViews(ctx context.Context, id uuid.UUID) error
+	IncrementStoryViews(ctx context.Context, id uuid.UUID) error
+	InstallStickerPack(ctx context.Context, arg InstallStickerPackParams) error
+	ListAnimatedEmoji(ctx context.Context) ([]ListAnimatedEmojiRow, error)
 	MarkChatMessagesRead(ctx context.Context, arg MarkChatMessagesReadParams) error
 	MarkReminderSent(ctx context.Context, id uuid.UUID) error
+	MarkUpdateProcessed(ctx context.Context, id int64) error
 	MuteChatMember(ctx context.Context, arg MuteChatMemberParams) error
 	PinMessage(ctx context.Context, id uuid.UUID) error
+	ReactToStory(ctx context.Context, arg ReactToStoryParams) error
 	RemoveChatFromCommunity(ctx context.Context, id uuid.UUID) error
 	RemoveChatFromFolder(ctx context.Context, arg RemoveChatFromFolderParams) error
 	RemoveChatMember(ctx context.Context, arg RemoveChatMemberParams) error
+	RemoveCloseFriend(ctx context.Context, arg RemoveCloseFriendParams) error
 	RemoveReaction(ctx context.Context, arg RemoveReactionParams) error
 	RevokeInviteLink(ctx context.Context, arg RevokeInviteLinkParams) error
+	SaveBotUpdate(ctx context.Context, arg SaveBotUpdateParams) error
 	SaveIdentityKey(ctx context.Context, arg SaveIdentityKeyParams) (IdentityKey, error)
 	// ============================================
 	// KEY BUNDLE
@@ -114,6 +168,7 @@ type Querier interface {
 	// ============================================
 	SaveSignedPreKey(ctx context.Context, arg SaveSignedPreKeyParams) (SignedPrekey, error)
 	SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]Message, error)
+	SearchStickers(ctx context.Context, query sql.NullString) ([]SearchStickersRow, error)
 	SendScheduledMessage(ctx context.Context, id uuid.UUID) error
 	SetMediaFailed(ctx context.Context, id uuid.UUID) error
 	SetMediaProcessed(ctx context.Context, id uuid.UUID) error
@@ -122,10 +177,12 @@ type Querier interface {
 	SetMessageReminder(ctx context.Context, arg SetMessageReminderParams) (MessageReminder, error)
 	UnarchiveChat(ctx context.Context, arg UnarchiveChatParams) error
 	UnbanChatMember(ctx context.Context, arg UnbanChatMemberParams) error
+	UninstallStickerPack(ctx context.Context, arg UninstallStickerPackParams) error
 	UnmuteChatMember(ctx context.Context, arg UnmuteChatMemberParams) error
 	UnpinMessage(ctx context.Context, id uuid.UUID) error
 	UnsaveMessage(ctx context.Context, arg UnsaveMessageParams) error
 	UnverifyChat(ctx context.Context, id uuid.UUID) error
+	UpdateBotWebhook(ctx context.Context, arg UpdateBotWebhookParams) error
 	UpdateChatMemberRole(ctx context.Context, arg UpdateChatMemberRoleParams) error
 	UpdateChatUpdatedAt(ctx context.Context, id uuid.UUID) error
 	UpdateChatVisibility(ctx context.Context, arg UpdateChatVisibilityParams) error
@@ -134,8 +191,15 @@ type Querier interface {
 	UpdateMediaUploaded(ctx context.Context, arg UpdateMediaUploadedParams) (Medium, error)
 	UpdateMessageDelivered(ctx context.Context, arg UpdateMessageDeliveredParams) error
 	UpdateMessageRead(ctx context.Context, arg UpdateMessageReadParams) error
+	UpdatePaymentStatus(ctx context.Context, arg UpdatePaymentStatusParams) error
+	UpdateSubscriptionByStripeID(ctx context.Context, arg UpdateSubscriptionByStripeIDParams) error
+	UpdateSubscriptionCancelAtPeriodEnd(ctx context.Context, arg UpdateSubscriptionCancelAtPeriodEndParams) error
 	UpdateUserOnlineStatus(ctx context.Context, arg UpdateUserOnlineStatusParams) error
+	UpsertAnimatedEmoji(ctx context.Context, arg UpsertAnimatedEmojiParams) error
+	UpsertPremiumSettings(ctx context.Context, arg UpsertPremiumSettingsParams) error
+	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) error
 	VerifyChat(ctx context.Context, id uuid.UUID) error
+	ViewStory(ctx context.Context, arg ViewStoryParams) error
 }
 
 var _ Querier = (*Queries)(nil)

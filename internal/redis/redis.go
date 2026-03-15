@@ -93,3 +93,17 @@ func (c *Client) GetLastseen(ctx context.Context, userID string) (time.Time, err
 	}
 	return time.Unix(val, 0), nil
 }
+func (c *Client) GetProfile(ctx context.Context, userID string) (string, error) {
+	return c.rdb.Get(ctx, "profile:"+userID).Result()
+}
+
+func (c *Client) SetProfile(ctx context.Context, userID string, data string) error {
+	return c.rdb.Set(ctx, "profile:"+userID, data, 10*time.Minute).Err()
+}
+
+func (c *Client) InvalidateProfile(ctx context.Context, userID string) error {
+	return c.rdb.Del(ctx, "profile:"+userID).Err()
+}
+func (c *Client) PSubscribe(ctx context.Context, patterns ...string) *redis.PubSub {
+    return c.rdb.PSubscribe(ctx, patterns...)
+}

@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"messenger/internal/database"
+	rdb "messenger/internal/redis"
 )
 
 var upgrader = websocket.Upgrader{
@@ -21,10 +24,9 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// ─── Типы событий ───────────────────────────────────────────
+// ─── Типы событий ────────────────────────────────────────────────────────────
 
 const (
-	// Сообщения
 	EventMessage = "message"
 	EventTyping  = "typing"
 	EventRead    = "read"
@@ -32,55 +34,58 @@ const (
 	EventOffline = "offline"
 
 	// WebRTC сигналинг
-	EventCallOffer   = "call.offer"   // Алиса → Боб: хочу позвонить
-	EventCallAnswer  = "call.answer"  // Боб → Алиса: принимаю
-	EventCallReject  = "call.reject"  // Боб → Алиса: отклоняю
-	EventCallHangup  = "call.hangup"  // кто угодно: завершаю
-	EventCallICE     = "call.ice"     // ICE candidate relay
-	EventCallRinging = "call.ringing" // уведомление о входящем
+	EventCallOffer   = "call.offer"
+	EventCallAnswer  = "call.answer"
+	EventCallReject  = "call.reject"
+	EventCallHangup  = "call.hangup"
+	EventCallICE     = "call.ice"
+	EventCallRinging = "call.ringing"
+	// Screen sharing — добавить сюда:
+	EventScreenShareStart = "screen.start"
+	EventScreenShareStop  = "screen.stop"
+	EventScreenShareOffer = "screen.offer"
+
+	// Voice room
+	EventHandRaise = "voice.hand_raise"
+	EventHandLower = "voice.hand_lower"
+	EventSpeaking  = "voice.speaking"
 )
 
-// ─── Структуры ──────────────────────────────────────────────
+// ─── Структуры ───────────────────────────────────────────────────────────────
 
-// WSMessage — универсальный конверт для всех событий
 type WSMessage struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
-	From    string          `json:"from,omitempty"` // заполняется сервером
-	To      string          `json:"to,omitempty"`   // userID получателя (для p2p)
+	From    string          `json:"from,omitempty"`
+	To      string          `json:"to,omitempty"`
 	ChatID  string          `json:"chat_id,omitempty"`
 	TS      int64           `json:"ts"`
 }
 
-// CallPayload — payload для WebRTC событий
 type CallPayload struct {
 	CallID    string `json:"call_id"`
-	SDP       string `json:"sdp,omitempty"`       // offer/answer SDP
-	Candidate string `json:"candidate,omitempty"` // ICE candidate
-	CallType  string `json:"call_type,omitempty"` // "audio" | "video"
+	SDP       string `json:"sdp,omitempty"`
+	Candidate string `json:"candidate,omitempty"`
+	CallType  string `json:"call_type,omitempty"` // audio | video
 }
-
-// ─── Client ─────────────────────────────────────────────────
 
 // Client — одно WebSocket соединение
 type Client struct {
-	conn     *websocket.Conn
-	send     chan []byte
-	userID   string
-	deviceID string
-	handler  *WSHandler
-
-	// для WebRTC: в каком звонке сейчас
+	conn         *websocket.Conn
+	send         chan []byte
+	userID       string
+	deviceID     string
+	handler      *WSHandler
 	activeCallID string
+	cancel       context.CancelFunc // отменяет Redis subscriber
 }
 
-// ─── WSHandler ──────────────────────────────────────────────
-
-// WSHandler — менеджер всех соединений
+// WSHandler — менеджер всех соединений + Redis pub/sub
 type WSHandler struct {
-	db *database.DB
+	db    *database.DB
+	redis *rdb.Client
 
-	// userID → список клиентов (один юзер может быть с нескольких устройств)
+	// userID → список клиентов (один юзер, несколько устройств)
 	users map[string][]*Client
 	mu    sync.RWMutex
 }
@@ -92,7 +97,16 @@ func NewWSHandler(db *database.DB) *WSHandler {
 	}
 }
 
-// ─── Handle ─────────────────────────────────────────────────
+// NewWSHandlerWithRedis — использовать этот конструктор для кластерного режима
+func NewWSHandlerWithRedis(db *database.DB, redis *rdb.Client) *WSHandler {
+	return &WSHandler{
+		db:    db,
+		redis: redis,
+		users: make(map[string][]*Client),
+	}
+}
+
+// ─── Handle ──────────────────────────────────────────────────────────────────
 
 func (h *WSHandler) Handle(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -108,26 +122,176 @@ func (h *WSHandler) Handle(c *gin.Context) {
 		return
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	client := &Client{
 		conn:     conn,
 		send:     make(chan []byte, 256),
 		userID:   userID,
 		deviceID: deviceID,
 		handler:  h,
+		cancel:   cancel,
 	}
 
 	h.register(client)
 	log.Printf("🟢 ws connected: user=%s device=%s total_users=%d",
 		userID, deviceID, h.userCount())
 
+	// Запускаем Redis subscriber для этого юзера
+	if h.redis != nil {
+		go h.subscribeRedis(ctx, client)
+	}
+
 	// Уведомляем других что юзер онлайн
-	h.broadcastPresence(userID, EventOnline)
+	h.publishPresence(userID, EventOnline)
 
 	go client.writePump()
 	client.readPump()
+
+	// После отключения
+	cancel()
 }
 
-// ─── Register / Unregister ──────────────────────────────────
+// ─── Redis pub/sub ────────────────────────────────────────────────────────────
+
+// redisChannel — канал для конкретного юзера
+func redisUserChannel(userID string) string {
+	return "ws:user:" + userID
+}
+
+// redisChatChannel — канал для чата
+func redisChatChannel(chatID string) string {
+	return "ws:chat:" + chatID
+}
+
+// subscribeRedis — слушает Redis канал и доставляет сообщения локальному клиенту
+func (h *WSHandler) subscribeRedis(ctx context.Context, client *Client) {
+	channel := redisUserChannel(client.userID)
+	pubsub := h.redis.Subscribe(ctx, channel)
+	defer pubsub.Close()
+
+	ch := pubsub.Channel()
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			select {
+			case client.send <- []byte(msg.Payload):
+			default:
+				log.Printf("⚠️ ws redis: send buffer full for user=%s", client.userID)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// publishToUser — публикует сообщение в Redis канал юзера
+// Доставка происходит на любом инстансе где юзер подключён
+func (h *WSHandler) publishToUser(userID string, msg *WSMessage) {
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	if h.redis != nil {
+		// Кластерный режим — через Redis
+		if err := h.redis.Publish(context.Background(), redisUserChannel(userID), raw); err != nil {
+			log.Printf("⚠️ ws redis publish user=%s: %v", userID, err)
+		}
+	} else {
+		// Fallback — локальная доставка (single-instance)
+		h.localSendToUser(userID, raw)
+	}
+}
+
+// publishToChat — публикует сообщение в Redis канал чата
+func (h *WSHandler) publishToChat(chatID string, msg *WSMessage, senderID string) {
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	if h.redis != nil {
+		if err := h.redis.Publish(context.Background(), redisChatChannel(chatID), raw); err != nil {
+			log.Printf("⚠️ ws redis publish chat=%s: %v", chatID, err)
+		}
+	} else {
+		h.localBroadcastToChat(chatID, raw, senderID)
+	}
+}
+
+// publishPresence — онлайн/офлайн статус
+func (h *WSHandler) publishPresence(userID, eventType string) {
+	msg := &WSMessage{
+		Type: eventType,
+		From: userID,
+		TS:   time.Now().UnixMilli(),
+	}
+	raw, _ := json.Marshal(msg)
+
+	if h.redis != nil {
+		// Публикуем в глобальный presence канал
+		h.redis.Publish(context.Background(), "ws:presence", raw)
+	} else {
+		h.localBroadcastAll(raw, userID)
+	}
+}
+
+// ─── Локальная доставка (fallback без Redis) ──────────────────────────────────
+
+func (h *WSHandler) localSendToUser(userID string, raw []byte) {
+	h.mu.RLock()
+	clients := h.users[userID]
+	h.mu.RUnlock()
+
+	for _, c := range clients {
+		select {
+		case c.send <- raw:
+		default:
+			log.Printf("⚠️ send buffer full for user=%s", userID)
+		}
+	}
+}
+
+func (h *WSHandler) localBroadcastToChat(chatID string, raw []byte, senderID string) {
+	_ = chatID // TODO Block 6: фильтровать по участникам чата
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for userID, clients := range h.users {
+		if userID == senderID {
+			continue
+		}
+		for _, c := range clients {
+			select {
+			case c.send <- raw:
+			default:
+			}
+		}
+	}
+}
+
+func (h *WSHandler) localBroadcastAll(raw []byte, excludeUserID string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for uid, clients := range h.users {
+		if uid == excludeUserID {
+			continue
+		}
+		for _, c := range clients {
+			select {
+			case c.send <- raw:
+			default:
+			}
+		}
+	}
+}
+
+// ─── Register / Unregister ───────────────────────────────────────────────────
 
 func (h *WSHandler) register(c *Client) {
 	h.mu.Lock()
@@ -160,17 +324,17 @@ func (h *WSHandler) userCount() int {
 	return len(h.users)
 }
 
-// ─── Read / Write pumps ─────────────────────────────────────
+// ─── Read / Write pumps ───────────────────────────────────────────────────────
 
 func (c *Client) readPump() {
 	defer func() {
 		c.handler.unregister(c)
-		c.handler.broadcastPresence(c.userID, EventOffline)
+		c.handler.publishPresence(c.userID, EventOffline)
 		c.conn.Close()
 		log.Printf("🔴 ws disconnected: user=%s", c.userID)
 	}()
 
-	c.conn.SetReadLimit(64 * 1024) // 64KB макс размер сообщения
+	c.conn.SetReadLimit(64 * 1024)
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -216,7 +380,6 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			// Ping каждые 30 секунд чтобы держать соединение живым
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
@@ -225,35 +388,41 @@ func (c *Client) writePump() {
 	}
 }
 
-// ─── Router ─────────────────────────────────────────────────
+// ─── Router ───────────────────────────────────────────────────────────────────
 
-// route — маршрутизация входящих сообщений по типу
 func (h *WSHandler) route(sender *Client, msg *WSMessage) {
 	switch msg.Type {
 
-	// Обычное сообщение в чат — рассылаем участникам чата
 	case EventMessage:
 		if msg.ChatID != "" {
-			h.broadcastToChat(msg.ChatID, msg, sender.userID)
+			h.publishToChat(msg.ChatID, msg, sender.userID)
 		}
 
-	// Typing индикатор — только в чат
 	case EventTyping:
 		if msg.ChatID != "" {
-			h.broadcastToChat(msg.ChatID, msg, sender.userID)
+			h.publishToChat(msg.ChatID, msg, sender.userID)
 		}
 
-	// Read receipt
 	case EventRead:
 		if msg.To != "" {
-			h.sendToUser(msg.To, msg)
+			h.publishToUser(msg.To, msg)
 		}
 
-	// WebRTC сигналинг — всё p2p через сервер как relay
 	case EventCallOffer, EventCallAnswer, EventCallReject,
 		EventCallHangup, EventCallICE, EventCallRinging:
 		if msg.To != "" {
-			h.sendToUser(msg.To, msg)
+			h.publishToUser(msg.To, msg)
+		}
+	case EventScreenShareStart, EventScreenShareStop, EventScreenShareOffer:
+		if msg.To != "" {
+			h.publishToUser(msg.To, msg)
+		} else if msg.ChatID != "" {
+			h.publishToChat(msg.ChatID, msg, sender.userID)
+		}
+
+	case EventHandRaise, EventHandLower, EventSpeaking:
+		if msg.ChatID != "" {
+			h.publishToChat(msg.ChatID, msg, sender.userID)
 		}
 
 	default:
@@ -261,80 +430,14 @@ func (h *WSHandler) route(sender *Client, msg *WSMessage) {
 	}
 }
 
-// ─── Send helpers ────────────────────────────────────────────
+// ─── Public API (используется другими хендлерами) ────────────────────────────
 
-// sendToUser — отправить сообщение конкретному юзеру (все его устройства)
+// sendToUser — публичный метод для отправки из других хендлеров
 func (h *WSHandler) sendToUser(userID string, msg *WSMessage) {
-	raw, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
-
-	h.mu.RLock()
-	clients := h.users[userID]
-	h.mu.RUnlock()
-
-	for _, c := range clients {
-		select {
-		case c.send <- raw:
-		default:
-			// буфер переполнен — клиент слишком медленный
-			log.Printf("⚠️ send buffer full for user=%s", userID)
-		}
-	}
+	h.publishToUser(userID, msg)
 }
 
-// broadcastToChat — отправить всем участникам чата кроме отправителя
-// TODO: в Блоке 6 заменить на реальную выборку участников из БД
-func (h *WSHandler) broadcastToChat(chatID string, msg *WSMessage, senderID string) {
-	_ = chatID // TODO: фильтровать по участникам чата в блоке 6
-	raw, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
-
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	for userID, clients := range h.users {
-		if userID == senderID {
-			continue
-		}
-		for _, c := range clients {
-			select {
-			case c.send <- raw:
-			default:
-			}
-		}
-	}
-}
-
-// broadcastPresence — онлайн/оффлайн статус
-func (h *WSHandler) broadcastPresence(userID string, eventType string) {
-	msg := &WSMessage{
-		Type: eventType,
-		From: userID,
-		TS:   time.Now().UnixMilli(),
-	}
-	raw, _ := json.Marshal(msg)
-
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	for uid, clients := range h.users {
-		if uid == userID {
-			continue
-		}
-		for _, c := range clients {
-			select {
-			case c.send <- raw:
-			default:
-			}
-		}
-	}
-}
-
-// IsUserOnline — проверить онлайн ли юзер (используется в call_handler)
+// IsUserOnline — проверить онлайн ли юзер на этом инстансе
 func (h *WSHandler) IsUserOnline(userID string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -344,5 +447,91 @@ func (h *WSHandler) IsUserOnline(userID string) bool {
 
 // SendSignal — отправить WebRTC сигнал (используется в call_handler)
 func (h *WSHandler) SendSignal(toUserID string, msg *WSMessage) {
-	h.sendToUser(toUserID, msg)
+	h.publishToUser(toUserID, msg)
+}
+
+// broadcastToChat — публичный метод для отправки из message handler
+func (h *WSHandler) broadcastToChat(chatID string, msg *WSMessage, senderID string) {
+	h.publishToChat(chatID, msg, senderID)
+}
+
+// broadcastPresence — публичный метод
+func (h *WSHandler) broadcastPresence(userID, eventType string) {
+	h.publishPresence(userID, eventType)
+}
+
+// Добавить в конец internal/handler/ws.go
+
+// StartChatSubscriber — запускается один раз при старте.
+// Подписывается на паттерн chat:* и рассылает события
+// всем онлайн участникам батчами по 100.
+func (h *WSHandler) StartChatSubscriber(ctx context.Context) {
+	if h.redis == nil {
+		log.Println("⚠️ ws: Redis not configured, chat subscriber disabled")
+		return
+	}
+
+	// PSubscribe слушает все каналы по паттерну chat:*
+	pubsub := h.redis.PSubscribe(ctx, "chat:*")
+	defer pubsub.Close()
+
+	log.Println("✅ ws: chat subscriber started (batch fan-out)")
+
+	ch := pubsub.Channel()
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			// Извлекаем chatID из имени канала "chat:{chatID}"
+			chatID := strings.TrimPrefix(msg.Channel, "chat:")
+			if chatID == "" {
+				continue
+			}
+			h.fanOutChatEvent(chatID, []byte(msg.Payload))
+
+		case <-ctx.Done():
+			log.Println("🛑 ws: chat subscriber stopped")
+			return
+		}
+	}
+}
+
+// fanOutChatEvent — рассылает raw payload всем онлайн
+// участникам чата батчами по batchSize.
+func (h *WSHandler) fanOutChatEvent(chatID string, raw []byte) {
+	// TODO Block 6: фильтровать по участникам чата chatID
+	_ = chatID
+	const batchSize = 100
+
+	h.mu.RLock()
+	// Собираем всех онлайн клиентов
+	var targets []*Client
+	for _, clients := range h.users {
+		targets = append(targets, clients...)
+	}
+	h.mu.RUnlock()
+
+	if len(targets) == 0 {
+		return
+	}
+
+	// Рассылаем батчами чтобы не блокировать mutex надолго
+	for i := 0; i < len(targets); i += batchSize {
+		end := i + batchSize
+		if end > len(targets) {
+			end = len(targets)
+		}
+		batch := targets[i:end]
+
+		for _, c := range batch {
+			select {
+			case c.send <- raw:
+			default:
+				// буфер переполнен — пропускаем этого клиента
+				log.Printf("⚠️ ws fan-out: buffer full user=%s", c.userID)
+			}
+		}
+	}
 }

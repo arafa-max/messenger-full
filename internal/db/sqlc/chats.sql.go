@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -671,9 +672,9 @@ type GetLastMessageTimeParams struct {
 	SenderID uuid.UUID `json:"sender_id"`
 }
 
-func (q *Queries) GetLastMessageTime(ctx context.Context, arg GetLastMessageTimeParams) (sql.NullTime, error) {
+func (q *Queries) GetLastMessageTime(ctx context.Context, arg GetLastMessageTimeParams) (time.Time, error) {
 	row := q.db.QueryRowContext(ctx, getLastMessageTime, arg.ChatID, arg.SenderID)
-	var created_at sql.NullTime
+	var created_at time.Time
 	err := row.Scan(&created_at)
 	return created_at, err
 }

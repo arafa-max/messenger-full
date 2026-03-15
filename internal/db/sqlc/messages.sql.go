@@ -33,7 +33,7 @@ func (q *Queries) AddReaction(ctx context.Context, arg AddReactionParams) error 
 const createMessage = `-- name: CreateMessage :one
 INSERT INTO messages(chat_id, sender_id, type, content, reply_to_id, format, is_spoiler, scheduled_at, expires_at, topic_id,media_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11)
-RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id
+RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, media_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, geo, link_preview
 `
 
 type CreateMessageParams struct {
@@ -85,6 +85,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		&i.UpdatedAt,
 		&i.Metadata,
 		&i.TopicID,
+		&i.MediaID,
 		&i.Format,
 		&i.IsSpoiler,
 		&i.QuotedText,
@@ -93,7 +94,8 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		&i.ForwardSenderID,
 		&i.ForwardChatID,
 		&i.ForwardDate,
-		&i.MediaID,
+		&i.Geo,
+		&i.LinkPreview,
 	)
 	return i, err
 }
@@ -197,7 +199,7 @@ func (q *Queries) DeleteQuickReply(ctx context.Context, arg DeleteQuickReplyPara
 const editMessage = `-- name: EditMessage :one
 UPDATE messages SET content = $2, format = $3, is_edited = TRUE, updated_at = NOW()
 WHERE id = $1
-RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id
+RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, media_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, geo, link_preview
 `
 
 type EditMessageParams struct {
@@ -229,6 +231,7 @@ func (q *Queries) EditMessage(ctx context.Context, arg EditMessageParams) (Messa
 		&i.UpdatedAt,
 		&i.Metadata,
 		&i.TopicID,
+		&i.MediaID,
 		&i.Format,
 		&i.IsSpoiler,
 		&i.QuotedText,
@@ -237,7 +240,8 @@ func (q *Queries) EditMessage(ctx context.Context, arg EditMessageParams) (Messa
 		&i.ForwardSenderID,
 		&i.ForwardChatID,
 		&i.ForwardDate,
-		&i.MediaID,
+		&i.Geo,
+		&i.LinkPreview,
 	)
 	return i, err
 }
@@ -249,7 +253,7 @@ INSERT INTO messages (
 )
 SELECT $2, $3, src.type, src.content, src.format, src.id, src.sender_id, src.chat_id, src.created_at
 FROM messages src WHERE src.id = $1
-RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id
+RETURNING id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, media_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, geo, link_preview
 `
 
 type ForwardMessageParams struct {
@@ -281,6 +285,7 @@ func (q *Queries) ForwardMessage(ctx context.Context, arg ForwardMessageParams) 
 		&i.UpdatedAt,
 		&i.Metadata,
 		&i.TopicID,
+		&i.MediaID,
 		&i.Format,
 		&i.IsSpoiler,
 		&i.QuotedText,
@@ -289,13 +294,14 @@ func (q *Queries) ForwardMessage(ctx context.Context, arg ForwardMessageParams) 
 		&i.ForwardSenderID,
 		&i.ForwardChatID,
 		&i.ForwardDate,
-		&i.MediaID,
+		&i.Geo,
+		&i.LinkPreview,
 	)
 	return i, err
 }
 
 const getChatMessages = `-- name: GetChatMessages :many
-SELECT m.id, m.chat_id, m.sender_id, m.reply_to_id, m.thread_id, m.forwarded_from_id, m.type, m.content, m.is_encrypted, m.is_edited, m.is_deleted, m.is_pinned, m.scheduled_at, m.expires_at, m.views_count, m.created_at, m.updated_at, m.metadata, m.topic_id, m.format, m.is_spoiler, m.quoted_text, m.quoted_offset, m.quoted_length, m.forward_sender_id, m.forward_chat_id, m.forward_date, m.media_id FROM messages m
+SELECT m.id, m.chat_id, m.sender_id, m.reply_to_id, m.thread_id, m.forwarded_from_id, m.type, m.content, m.is_encrypted, m.is_edited, m.is_deleted, m.is_pinned, m.scheduled_at, m.expires_at, m.views_count, m.created_at, m.updated_at, m.metadata, m.topic_id, m.media_id, m.format, m.is_spoiler, m.quoted_text, m.quoted_offset, m.quoted_length, m.forward_sender_id, m.forward_chat_id, m.forward_date, m.geo, m.link_preview FROM messages m
 LEFT JOIN deleted_messages dm ON dm.message_id = m.id AND dm.user_id = $4
 WHERE m.chat_id = $1
   AND m.is_deleted = FALSE
@@ -346,6 +352,7 @@ func (q *Queries) GetChatMessages(ctx context.Context, arg GetChatMessagesParams
 			&i.UpdatedAt,
 			&i.Metadata,
 			&i.TopicID,
+			&i.MediaID,
 			&i.Format,
 			&i.IsSpoiler,
 			&i.QuotedText,
@@ -354,7 +361,8 @@ func (q *Queries) GetChatMessages(ctx context.Context, arg GetChatMessagesParams
 			&i.ForwardSenderID,
 			&i.ForwardChatID,
 			&i.ForwardDate,
-			&i.MediaID,
+			&i.Geo,
+			&i.LinkPreview,
 		); err != nil {
 			return nil, err
 		}
@@ -370,7 +378,7 @@ func (q *Queries) GetChatMessages(ctx context.Context, arg GetChatMessagesParams
 }
 
 const getMessageByID = `-- name: GetMessageByID :one
-SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages WHERE id = $1 AND is_deleted = FALSE
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, media_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, geo, link_preview FROM messages WHERE id = $1 AND is_deleted = FALSE
 `
 
 func (q *Queries) GetMessageByID(ctx context.Context, id uuid.UUID) (Message, error) {
@@ -396,6 +404,7 @@ func (q *Queries) GetMessageByID(ctx context.Context, id uuid.UUID) (Message, er
 		&i.UpdatedAt,
 		&i.Metadata,
 		&i.TopicID,
+		&i.MediaID,
 		&i.Format,
 		&i.IsSpoiler,
 		&i.QuotedText,
@@ -404,7 +413,8 @@ func (q *Queries) GetMessageByID(ctx context.Context, id uuid.UUID) (Message, er
 		&i.ForwardSenderID,
 		&i.ForwardChatID,
 		&i.ForwardDate,
-		&i.MediaID,
+		&i.Geo,
+		&i.LinkPreview,
 	)
 	return i, err
 }
@@ -446,7 +456,7 @@ func (q *Queries) GetMessageReactions(ctx context.Context, messageID uuid.UUID) 
 }
 
 const getPendingReminders = `-- name: GetPendingReminders :many
-SELECT id, user_id, message_id, remind_at, is_sent, created_at FROM message_reminders
+SELECT id, user_id, message_id, created_at, remind_at, is_sent FROM message_reminders
 WHERE remind_at <= NOW() AND is_sent = FALSE
 `
 
@@ -463,9 +473,9 @@ func (q *Queries) GetPendingReminders(ctx context.Context) ([]MessageReminder, e
 			&i.ID,
 			&i.UserID,
 			&i.MessageID,
+			&i.CreatedAt,
 			&i.RemindAt,
 			&i.IsSent,
-			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -481,7 +491,7 @@ func (q *Queries) GetPendingReminders(ctx context.Context) ([]MessageReminder, e
 }
 
 const getPinnedMessages = `-- name: GetPinnedMessages :many
-SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, media_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, geo, link_preview FROM messages
 WHERE chat_id = $1 AND is_pinned = TRUE AND is_deleted = FALSE
 ORDER BY updated_at DESC
 `
@@ -515,6 +525,7 @@ func (q *Queries) GetPinnedMessages(ctx context.Context, chatID uuid.UUID) ([]Me
 			&i.UpdatedAt,
 			&i.Metadata,
 			&i.TopicID,
+			&i.MediaID,
 			&i.Format,
 			&i.IsSpoiler,
 			&i.QuotedText,
@@ -523,7 +534,8 @@ func (q *Queries) GetPinnedMessages(ctx context.Context, chatID uuid.UUID) ([]Me
 			&i.ForwardSenderID,
 			&i.ForwardChatID,
 			&i.ForwardDate,
-			&i.MediaID,
+			&i.Geo,
+			&i.LinkPreview,
 		); err != nil {
 			return nil, err
 		}
@@ -574,7 +586,7 @@ func (q *Queries) GetQuickReplies(ctx context.Context, userID uuid.UUID) ([]Quic
 }
 
 const getSavedMessages = `-- name: GetSavedMessages :many
-SELECT m.id, m.chat_id, m.sender_id, m.reply_to_id, m.thread_id, m.forwarded_from_id, m.type, m.content, m.is_encrypted, m.is_edited, m.is_deleted, m.is_pinned, m.scheduled_at, m.expires_at, m.views_count, m.created_at, m.updated_at, m.metadata, m.topic_id, m.format, m.is_spoiler, m.quoted_text, m.quoted_offset, m.quoted_length, m.forward_sender_id, m.forward_chat_id, m.forward_date, m.media_id FROM messages m
+SELECT m.id, m.chat_id, m.sender_id, m.reply_to_id, m.thread_id, m.forwarded_from_id, m.type, m.content, m.is_encrypted, m.is_edited, m.is_deleted, m.is_pinned, m.scheduled_at, m.expires_at, m.views_count, m.created_at, m.updated_at, m.metadata, m.topic_id, m.media_id, m.format, m.is_spoiler, m.quoted_text, m.quoted_offset, m.quoted_length, m.forward_sender_id, m.forward_chat_id, m.forward_date, m.geo, m.link_preview FROM messages m
 JOIN saved_messages sm ON sm.message_id = m.id
 WHERE sm.user_id = $1 AND m.is_deleted = FALSE
 ORDER BY sm.saved_at DESC
@@ -616,6 +628,7 @@ func (q *Queries) GetSavedMessages(ctx context.Context, arg GetSavedMessagesPara
 			&i.UpdatedAt,
 			&i.Metadata,
 			&i.TopicID,
+			&i.MediaID,
 			&i.Format,
 			&i.IsSpoiler,
 			&i.QuotedText,
@@ -624,7 +637,8 @@ func (q *Queries) GetSavedMessages(ctx context.Context, arg GetSavedMessagesPara
 			&i.ForwardSenderID,
 			&i.ForwardChatID,
 			&i.ForwardDate,
-			&i.MediaID,
+			&i.Geo,
+			&i.LinkPreview,
 		); err != nil {
 			return nil, err
 		}
@@ -640,7 +654,7 @@ func (q *Queries) GetSavedMessages(ctx context.Context, arg GetSavedMessagesPara
 }
 
 const getScheduledMessages = `-- name: GetScheduledMessages :many
-SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, media_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, geo, link_preview FROM messages
 WHERE scheduled_at <= NOW()
   AND scheduled_at IS NOT NULL
   AND is_deleted = FALSE
@@ -675,6 +689,7 @@ func (q *Queries) GetScheduledMessages(ctx context.Context) ([]Message, error) {
 			&i.UpdatedAt,
 			&i.Metadata,
 			&i.TopicID,
+			&i.MediaID,
 			&i.Format,
 			&i.IsSpoiler,
 			&i.QuotedText,
@@ -683,7 +698,8 @@ func (q *Queries) GetScheduledMessages(ctx context.Context) ([]Message, error) {
 			&i.ForwardSenderID,
 			&i.ForwardChatID,
 			&i.ForwardDate,
-			&i.MediaID,
+			&i.Geo,
+			&i.LinkPreview,
 		); err != nil {
 			return nil, err
 		}
@@ -787,7 +803,7 @@ func (q *Queries) SaveMessage(ctx context.Context, arg SaveMessageParams) error 
 }
 
 const searchMessages = `-- name: SearchMessages :many
-SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, media_id FROM messages
+SELECT id, chat_id, sender_id, reply_to_id, thread_id, forwarded_from_id, type, content, is_encrypted, is_edited, is_deleted, is_pinned, scheduled_at, expires_at, views_count, created_at, updated_at, metadata, topic_id, media_id, format, is_spoiler, quoted_text, quoted_offset, quoted_length, forward_sender_id, forward_chat_id, forward_date, geo, link_preview FROM messages
 WHERE chat_id = $1
   AND is_deleted = FALSE
   AND content ILIKE '%' || $2::text || '%'
@@ -836,6 +852,7 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 			&i.UpdatedAt,
 			&i.Metadata,
 			&i.TopicID,
+			&i.MediaID,
 			&i.Format,
 			&i.IsSpoiler,
 			&i.QuotedText,
@@ -844,7 +861,8 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 			&i.ForwardSenderID,
 			&i.ForwardChatID,
 			&i.ForwardDate,
-			&i.MediaID,
+			&i.Geo,
+			&i.LinkPreview,
 		); err != nil {
 			return nil, err
 		}
@@ -875,7 +893,7 @@ INSERT INTO message_reminders (user_id, message_id, remind_at)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id, message_id)
 DO UPDATE SET remind_at = EXCLUDED.remind_at, is_sent = FALSE
-RETURNING id, user_id, message_id, remind_at, is_sent, created_at
+RETURNING id, user_id, message_id, created_at, remind_at, is_sent
 `
 
 type SetMessageReminderParams struct {
@@ -891,9 +909,9 @@ func (q *Queries) SetMessageReminder(ctx context.Context, arg SetMessageReminder
 		&i.ID,
 		&i.UserID,
 		&i.MessageID,
+		&i.CreatedAt,
 		&i.RemindAt,
 		&i.IsSent,
-		&i.CreatedAt,
 	)
 	return i, err
 }

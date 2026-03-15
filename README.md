@@ -94,3 +94,5 @@ If you have run out of energy or time for your project, put a note at the top of
 
 #
 swag init --dir .,../../internal/handler,../../internal/db/sqlc --output ../../docs --parseDependency --parseInternal
+
+PS C:\Users\FX\Desktop\messenger-full> goose -dir migrations postgres "postgresql://messenger_user:messenger.IT@localhost:5432/messenger?sslmode=disable" up 

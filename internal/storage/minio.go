@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -42,7 +43,7 @@ func NewMinIOClient(endpoint, accessKey, secretKey, bucket string, useSSL bool, 
 	return &MinIOClient{
 		client:     client,
 		bucket:     bucket,
-		publicHost: publicHost, 
+		publicHost: publicHost,
 	}, nil
 }
 
@@ -110,4 +111,15 @@ func (m *MinIOClient) Upload(ctx context.Context, objectKey string, reader io.Re
 
 func (m *MinIOClient) PublicURL(objectKey string) string {
 	return fmt.Sprintf("%s/%s/%s", m.publicHost, m.bucket, objectKey)
+}
+
+func (c *MinIOClient) UploadBytes(ctx context.Context, bucket, key string, data []byte, contentType string) (string, error) {
+	_, err := c.client.PutObject(ctx, bucket, key,
+		bytes.NewReader(data), int64(len(data)),
+		minio.PutObjectOptions{ContentType: contentType},
+	)
+	if err != nil {
+		return "", err
+	}
+	return c.publicHost + "/" + bucket + "/" + key, nil
 }

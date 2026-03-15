@@ -2,6 +2,8 @@ package handler
 
 import (
 	"database/sql"
+	"encoding/json"
+	"messenger/internal/ai"
 	db "messenger/internal/db/sqlc"
 	"messenger/internal/storage"
 	"messenger/internal/store"
@@ -13,28 +15,71 @@ import (
 	"github.com/google/uuid"
 )
 
+type sendMessageReq struct {
+	Type        string          `json:"type" binding:"required"`
+	Content     string          `json:"content"`
+	ReplyToID   *string         `json:"reply_to_id"`
+	Format      string          `json:"format"`
+	IsSpoiler   bool            `json:"is_spoiler"`
+	ScheduledAt *string         `json:"scheduled_at"`
+	ExpiresAt   *string         `json:"expires_at"`
+	TopicID     *string         `json:"topic_id"`
+	MediaID     *string         `json:"media_id"`
+	Geo         *GeoPayload     `json:"geo,omitempty"`
+	StickerID   *string         `json:"sticker_id,omitempty"`
+	Poll        *PollPayload    `json:"poll,omitempty"`
+	Contact     *ContactPayload `json:"contact,omitempty"`
+	Invoice     *InvoicePayload `json:"invoice,omitempty"`
+}
 type MessageHandler struct {
-	store *store.MessageStore
-	q     *db.Queries
-	minio *storage.MinIOClient
+	store      *store.MessageStore
+	q          *db.Queries
+	minio      *storage.MinIOClient
+	translator ai.Translator
 }
 
-func NewMessageHandler(store *store.MessageStore, sqlDB *sql.DB, minio *storage.MinIOClient) *MessageHandler {
-	return &MessageHandler{store: store, q: db.New(sqlDB), minio: minio}
+func NewMessageHandler(store *store.MessageStore, sqlDB *sql.DB, minio *storage.MinIOClient, translator ai.Translator) *MessageHandler {
+	return &MessageHandler{store: store, q: db.New(sqlDB), minio: minio, translator: translator}
 }
 
 //--send
 
-type sendMessageReq struct {
-	Type        string  `json:"type" binding:"required"`
-	Content     string  `json:"content"`
-	ReplyToID   *string `json:"reply_to_id"`
-	Format      string  `json:"format"`
-	IsSpoiler   bool    `json:"is_spoiler"`
-	ScheduledAt *string `json:"scheduled_at"`
-	ExpiresAt   *string `json:"expires_at"`
-	TopicID     *string `json:"topic_id"`
-	MediaID     *string `json:"media_id"`
+// GeoPayload — геолокация
+type GeoPayload struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Title     string  `json:"title,omitempty"`   // название места
+	Address   string  `json:"address,omitempty"` // адрес
+	IsLive    bool    `json:"is_live,omitempty"` // live location
+}
+
+// PollPayload — опрос
+type PollPayload struct {
+	Question      string   `json:"question" binding:"required"`
+	Options       []string `json:"options" binding:"required,min=2,max=10"`
+	IsAnonymous   bool     `json:"is_anonymous"`
+	IsMultiple    bool     `json:"is_multiple"`              // можно выбрать несколько
+	IsQuiz        bool     `json:"is_quiz"`                  // викторина — один правильный ответ
+	CorrectOption *int     `json:"correct_option,omitempty"` // для quiz
+}
+
+// ContactPayload — контакт
+type ContactPayload struct {
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name,omitempty"`
+	Phone     string `json:"phone,omitempty"`
+	Username  string `json:"username,omitempty"`
+	UserID    string `json:"user_id,omitempty"` // если зарегистрирован
+}
+
+// InvoicePayload — счёт для оплаты
+type InvoicePayload struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Amount      int64  `json:"amount"`            // в копейках/центах
+	Currency    string `json:"currency"`          // usd, rub и т.д.
+	BotID       string `json:"bot_id"`            // какой бот принимает оплату
+	Payload     string `json:"payload,omitempty"` // произвольные данные для бота
 }
 
 // @Summary      Send message
@@ -64,8 +109,8 @@ func (h *MessageHandler) Send(c *gin.Context) {
 			ChatID:   chatID,
 			SenderID: senderID,
 		})
-		if err == nil && lastMsgTime.Valid {
-			elapsed := time.Since(lastMsgTime.Time)
+		if err == nil && !lastMsgTime.IsZero() {
+			elapsed := time.Since(lastMsgTime)
 			cooldown := time.Duration(slowMode.Int32) * time.Second
 			if elapsed < cooldown {
 				remaining := int(cooldown.Seconds() - elapsed.Seconds())
@@ -83,6 +128,7 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	params := db.CreateMessageParams{
 		ChatID:   chatID,
 		SenderID: senderID,
@@ -110,14 +156,65 @@ func (h *MessageHandler) Send(c *gin.Context) {
 			params.MediaID = uuid.NullUUID{UUID: id, Valid: true}
 		}
 	}
-	msq, err := h.store.Send(c, params)
+
+	// ── Типы сообщений ────────────────────────────────────────────
+	switch req.Type {
+	case "geo":
+		if req.Geo == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "geo payload required"})
+			return
+		}
+		geoJSON, err := json.Marshal(req.Geo)
+		if err == nil {
+			params.Content = string(geoJSON)
+		}
+
+	case "sticker":
+		if req.StickerID == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "sticker_id required"})
+			return
+		}
+		if id, err := uuid.Parse(*req.StickerID); err == nil {
+			params.MediaID = uuid.NullUUID{UUID: id, Valid: true}
+		}
+
+	case "poll":
+		if req.Poll == nil || len(req.Poll.Options) < 2 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "poll requires at least 2 options"})
+			return
+		}
+		pollJSON, err := json.Marshal(req.Poll)
+		if err == nil {
+			params.Content = string(pollJSON)
+		}
+
+	case "contact":
+		if req.Contact == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "contact payload required"})
+			return
+		}
+		contactJSON, err := json.Marshal(req.Contact)
+		if err == nil {
+			params.Content = string(contactJSON)
+		}
+
+	case "invoice":
+		if req.Invoice == nil || req.Invoice.Amount <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invoice requires positive amount"})
+			return
+		}
+		invoiceJSON, err := json.Marshal(req.Invoice)
+		if err == nil {
+			params.Content = string(invoiceJSON)
+		}
+	}
+
+	msg, err := h.store.Send(c, params)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send message"})
 		return
 	}
-	c.JSON(http.StatusCreated, toMessageResponse(msq))
-
-
+	c.JSON(http.StatusCreated, toMessageResponse(msg))
 }
 
 //--Get
@@ -612,7 +709,7 @@ func (h *MessageHandler) SetReminder(c *gin.Context) {
 		MessageID: reminder.MessageID,
 		RemindAt:  reminder.RemindAt,
 		IsSent:    reminder.IsSent.Bool,
-		CreatedAt: reminder.CreatedAt.Time,
+		CreatedAt: reminder.CreatedAt,
 	})
 }
 
@@ -718,9 +815,7 @@ func toMessageResponse(m db.Message) messageResponse {
 	if m.QuotedText.Valid {
 		r.QuotedText = m.QuotedText.String
 	}
-	if m.CreatedAt.Valid {
-		r.CreatedAt = m.CreatedAt.Time
-	}
+	r.CreatedAt = m.CreatedAt
 	if m.UpdatedAt.Valid {
 		r.UpdatedAt = m.UpdatedAt.Time
 	}
@@ -740,4 +835,49 @@ type reminderResponse struct {
 	RemindAt  time.Time `json:"remind_at"`
 	IsSent    bool      `json:"is_sent"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// @Summary      Translate message
+// @Tags         messages
+// @Security     BearerAuth
+// @Param        id    path   string  true  "Message ID"
+// @Param        lang  query  string  true  "Target language (ru, en, de...)"
+// @Success      200  {object}  map[string]string
+// @Router       /messages/{id}/translate [get]
+func (h *MessageHandler) Translate(c *gin.Context) {
+	msgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message_id"})
+		return
+	}
+
+	targetLang := c.Query("lang")
+	if targetLang == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "lang query param required"})
+		return
+	}
+
+	msg, err := h.store.GetByID(c, msgID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+		return
+	}
+
+	if msg.Content == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "message has no text content"})
+		return
+	}
+
+	translated, err := h.translator.Translate(c, msg.Content, "", targetLang)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "translation unavailable"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message_id":  msgID,
+		"original":    msg.Content,
+		"translated":  translated,
+		"target_lang": targetLang,
+	})
 }

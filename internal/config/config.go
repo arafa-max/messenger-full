@@ -8,13 +8,20 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	JWT      JWTConfig
-	Redis    RedisConfig
-	MinIO    MinIOConfig
-	TURN     TURNConfig
-	Env      string
+	Server         ServerConfig
+	Database       DatabaseConfig
+	JWT            JWTConfig
+	Redis          RedisConfig
+	MinIO          MinIOConfig
+	TURN           TURNConfig
+	Env            string
+	Tenor          TenorConfig
+	AI             AIConfig
+	SD             StableDiffusionConfig
+	Whisper        WhisperConfig
+	Piper          PiperConfig
+	LibreTranslate LibreTranslateConfig
+	Stripe         StripeConfig
 }
 type MinIOConfig struct {
 	Endpoint   string
@@ -57,12 +64,26 @@ func (d DatabaseConfig) DSN() string {
 type RedisConfig struct {
 	URL string
 }
+
 type TURNConfig struct {
 	Host       string `env:"TURN_HOST"        envDefault:"turn.yourdomain.com"`
 	Port       int    `env:"TURN_PORT"        envDefault:"3478"`
 	TLSPort    int    `env:"TURN_TLS_PORT"    envDefault:"5349"`
 	AuthSecret string `env:"TURN_AUTH_SECRET" envDefault:""`
 	TTL        int    `env:"TURN_TTL"         envDefault:"86400"`
+}
+
+type TenorConfig struct {
+	APIKey string
+}
+
+type AIConfig struct {
+	OllamaURL       string `env:"OLLAMA_URL"        envDefault:""`
+	SmartReplyModel string `env:"AI_SMART_MODEL"    envDefault:"llama3.2:1b"`
+	SummaryModel    string `env:"AI_SUMMARY_MODEL"  envDefault:""`
+	WhisperURL      string `env:"WHISPER_URL"        envDefault:""`
+	MaxPromptChars  int    `env:"AI_MAX_PROMPT_CHARS" envDefault:"2000"`
+	RequestTimeout  int    `env:"AI_TIMEOUT_SEC"    envDefault:"30"`
 }
 
 func Load() *Config {
@@ -105,6 +126,9 @@ func Load() *Config {
 			AuthSecret: getEnv("TURN_AUTH_SECRET", ""),
 			TTL:        getEnvInt("TURN_TTL", 86400),
 		},
+		Tenor: TenorConfig{
+			APIKey: getEnv("TENOR_API_KEY", ""),
+		},
 	}
 }
 
@@ -130,4 +154,31 @@ func getEnvBool(key string, def bool) bool {
 		}
 	}
 	return def
+}
+
+type StableDiffusionConfig struct {
+	URL     string `env:"SD_URL"     envDefault:""`
+	Timeout int    `env:"SD_TIMEOUT" envDefault:"120"`
+}
+
+type WhisperConfig struct {
+	URL     string `env:"WHISPER_URL"     envDefault:""`
+	Timeout int    `env:"WHISPER_TIMEOUT" envDefault:"60"`
+}
+
+type PiperConfig struct {
+	URL     string `env:"PIPER_URL"     envDefault:""`
+	Timeout int    `env:"PIPER_TIMEOUT" envDefault:"30"`
+}
+
+type LibreTranslateConfig struct {
+	URL     string `env:"LIBRETRANSLATE_URL"     envDefault:""`
+	APIKey  string `env:"LIBRETRANSLATE_API_KEY" envDefault:""`
+	Timeout int    `env:"LIBRETRANSLATE_TIMEOUT" envDefault:"30"`
+}
+
+type StripeConfig struct {
+	SecretKey      string `env:"STRIPE_SECRET_KEY"    envDefault:""`
+	WebhookSecret  string `env:"STRIPE_WEBHOOK_SECRET" envDefault:""`
+	PremiumPriceID string `env:"STRIPE_PREMIUM_PRICE_ID"`
 }

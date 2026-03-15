@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log"
 	"messenger/internal/auth"
 	"messenger/internal/config"
@@ -33,10 +34,13 @@ func NewAuthHandler(sqlDB *sql.DB, cfg *config.Config, rdb *redis.Client) *AuthH
 	}
 }
 
+// стало:
 type registerReq struct {
-	Username string `json:"username" binding:"required,min=3,max=32"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
+	Username     string `json:"username" binding:"required,min=3,max=32"`
+	Email        string `json:"email" binding:"omitempty,email"`
+	Password     string `json:"password" binding:"required,min=8"`
+	PowChallenge string `json:"pow_challenge"`
+	PowNonce     string `json:"pow_nonce"`
 }
 
 // @Summary Registration
@@ -53,13 +57,21 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if req.PowChallenge != "" {
+		if err := h.VerifyPoW(c, req.PowChallenge, req.PowNonce); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	if _, err := h.q.GetUserByUsername(c, req.Username); err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "username already taken"})
 		return
 	}
-	if _, err := h.q.GetUserByEmail(c, sql.NullString{String: req.Email, Valid: true}); err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "email already taken"})
-		return
+	if req.Email != "" {
+		if _, err := h.q.GetUserByEmail(c, sql.NullString{String: req.Email, Valid: true}); err == nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "email already taken"})
+			return
+		}
 	}
 	hashed, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -68,7 +80,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	user, err := h.q.CreateUser(c, db.CreateUserParams{
 		Username: req.Username,
-		Email:    sql.NullString{String: req.Email, Valid: true},
+		Email:    sql.NullString{String: req.Email, Valid: req.Email != ""},
 		Password: hashed,
 		Language: sql.NullString{String: "ru", Valid: true},
 	})
@@ -321,19 +333,38 @@ func parseInet(ipStr string) pqtype.Inet {
 // @Router       /users/{username} [get]
 func (h *AuthHandler) GetUser(c *gin.Context) {
 	username := c.Param("username")
+
 	user, err := h.q.GetUserByUsername(c, username)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
-	safe := toSafeUser(user)
 
-	isOnline, _ := h.rdb.IsOnline(c, user.ID.String())
-	safe.IsOnline = isOnline
+	userIDStr := user.ID.String()
 
-	lastSeen, err := h.rdb.GetLastseen(c, user.ID.String())
-	if err == nil {
-		safe.LastSeen = &lastSeen
+	// Пробуем кэш
+	if cached, err := h.rdb.GetProfile(c, userIDStr); err == nil {
+		var safe safeUser
+		if json.Unmarshal([]byte(cached), &safe) == nil {
+			safe.IsOnline, _ = h.rdb.IsOnline(c, userIDStr)
+			if ls, err := h.rdb.GetLastseen(c, userIDStr); err == nil {
+				safe.LastSeen = &ls
+			}
+			c.JSON(http.StatusOK, safe)
+			return
+		}
 	}
+
+	// Кэш-мисс
+	safe := toSafeUser(user)
+	safe.IsOnline, _ = h.rdb.IsOnline(c, userIDStr)
+	if ls, err := h.rdb.GetLastseen(c, userIDStr); err == nil {
+		safe.LastSeen = &ls
+	}
+
+	if data, err := json.Marshal(safe); err == nil {
+		h.rdb.SetProfile(c, userIDStr, string(data))
+	}
+
 	c.JSON(http.StatusOK, safe)
 }

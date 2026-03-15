@@ -106,6 +106,24 @@ func (ns NullMediaType) Value() (driver.Value, error) {
 	return string(ns.MediaType), nil
 }
 
+type AiRequest struct {
+	ID          uuid.UUID `json:"id"`
+	UserID      uuid.UUID `json:"user_id"`
+	RequestType string    `json:"request_type"`
+	TokensUsed  int32     `json:"tokens_used"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type AnimatedEmoji struct {
+	ID        int32         `json:"id"`
+	Emoji     string        `json:"emoji"`
+	ObjectKey string        `json:"object_key"`
+	Bucket    string        `json:"bucket"`
+	Width     sql.NullInt32 `json:"width"`
+	Height    sql.NullInt32 `json:"height"`
+	CreatedAt sql.NullTime  `json:"created_at"`
+}
+
 type AuditLog struct {
 	ID         uuid.UUID             `json:"id"`
 	ActorID    uuid.NullUUID         `json:"actor_id"`
@@ -119,15 +137,35 @@ type AuditLog struct {
 }
 
 type Bot struct {
-	ID         uuid.UUID             `json:"id"`
-	UserID     uuid.UUID             `json:"user_id"`
-	OwnerID    uuid.UUID             `json:"owner_id"`
-	Token      string                `json:"token"`
-	WebhookUrl sql.NullString        `json:"webhook_url"`
-	Commands   pqtype.NullRawMessage `json:"commands"`
-	IsActive   sql.NullBool          `json:"is_active"`
-	CreatedAt  sql.NullTime          `json:"created_at"`
-	Metadata   pqtype.NullRawMessage `json:"metadata"`
+	ID            uuid.UUID `json:"id"`
+	OwnerID       uuid.UUID `json:"owner_id"`
+	Token         string    `json:"token"`
+	Username      string    `json:"username"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	AvatarUrl     string    `json:"avatar_url"`
+	IsActive      bool      `json:"is_active"`
+	IsAiEnabled   bool      `json:"is_ai_enabled"`
+	WebhookUrl    string    `json:"webhook_url"`
+	WebhookSecret string    `json:"webhook_secret"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type BotCommand struct {
+	ID          uuid.UUID `json:"id"`
+	BotID       uuid.UUID `json:"bot_id"`
+	Command     string    `json:"command"`
+	Description string    `json:"description"`
+}
+
+type BotUpdate struct {
+	ID        int64           `json:"id"`
+	BotID     uuid.UUID       `json:"bot_id"`
+	UpdateID  int64           `json:"update_id"`
+	Type      string          `json:"type"`
+	Payload   json.RawMessage `json:"payload"`
+	Processed bool            `json:"processed"`
+	CreatedAt time.Time       `json:"created_at"`
 }
 
 type Call struct {
@@ -193,6 +231,15 @@ type ChatFolderItem struct {
 	ChatID   uuid.UUID `json:"chat_id"`
 }
 
+type ChatLabel struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	ChatID    uuid.UUID `json:"chat_id"`
+	Label     string    `json:"label"`
+	Color     string    `json:"color"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type ChatMember struct {
 	ChatID     uuid.UUID             `json:"chat_id"`
 	UserID     uuid.UUID             `json:"user_id"`
@@ -218,6 +265,12 @@ type ChatTopic struct {
 	CreatedAt    sql.NullTime   `json:"created_at"`
 }
 
+type CloseFriend struct {
+	UserID    uuid.UUID `json:"user_id"`
+	FriendID  uuid.UUID `json:"friend_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Contact struct {
 	UserID    uuid.UUID      `json:"user_id"`
 	ContactID uuid.UUID      `json:"contact_id"`
@@ -228,6 +281,7 @@ type Contact struct {
 
 type DeletedMessage struct {
 	MessageID uuid.UUID    `json:"message_id"`
+	CreatedAt time.Time    `json:"created_at"`
 	UserID    uuid.UUID    `json:"user_id"`
 	DeletedAt sql.NullTime `json:"deleted_at"`
 }
@@ -242,6 +296,14 @@ type Device struct {
 	IsActive   sql.NullBool          `json:"is_active"`
 	CreatedAt  sql.NullTime          `json:"created_at"`
 	Metadata   pqtype.NullRawMessage `json:"metadata"`
+}
+
+type EmojiKeyword struct {
+	ID      int32          `json:"id"`
+	Keyword string         `json:"keyword"`
+	Emoji   string         `json:"emoji"`
+	Lang    sql.NullString `json:"lang"`
+	Weight  sql.NullInt32  `json:"weight"`
 }
 
 type IdentityKey struct {
@@ -297,6 +359,17 @@ type LiveLocation struct {
 	CreatedAt sql.NullTime    `json:"created_at"`
 }
 
+type MediaSearchIndex struct {
+	ID        uuid.UUID      `json:"id"`
+	MediaID   uuid.UUID      `json:"media_id"`
+	MessageID uuid.NullUUID  `json:"message_id"`
+	CreatedAt time.Time      `json:"created_at"`
+	Content   string         `json:"content"`
+	Source    string         `json:"source"`
+	Lang      sql.NullString `json:"lang"`
+	IndexedAt sql.NullTime   `json:"indexed_at"`
+}
+
 type Medium struct {
 	ID           uuid.UUID             `json:"id"`
 	UploaderID   uuid.UUID             `json:"uploader_id"`
@@ -333,10 +406,11 @@ type Message struct {
 	ScheduledAt     sql.NullTime          `json:"scheduled_at"`
 	ExpiresAt       sql.NullTime          `json:"expires_at"`
 	ViewsCount      sql.NullInt32         `json:"views_count"`
-	CreatedAt       sql.NullTime          `json:"created_at"`
+	CreatedAt       time.Time             `json:"created_at"`
 	UpdatedAt       sql.NullTime          `json:"updated_at"`
 	Metadata        pqtype.NullRawMessage `json:"metadata"`
 	TopicID         uuid.NullUUID         `json:"topic_id"`
+	MediaID         uuid.NullUUID         `json:"media_id"`
 	Format          sql.NullString        `json:"format"`
 	IsSpoiler       sql.NullBool          `json:"is_spoiler"`
 	QuotedText      sql.NullString        `json:"quoted_text"`
@@ -345,12 +419,14 @@ type Message struct {
 	ForwardSenderID uuid.NullUUID         `json:"forward_sender_id"`
 	ForwardChatID   uuid.NullUUID         `json:"forward_chat_id"`
 	ForwardDate     sql.NullTime          `json:"forward_date"`
-	MediaID         uuid.NullUUID         `json:"media_id"`
+	Geo             pqtype.NullRawMessage `json:"geo"`
+	LinkPreview     pqtype.NullRawMessage `json:"link_preview"`
 }
 
 type MessageEdit struct {
 	ID         uuid.UUID    `json:"id"`
 	MessageID  uuid.UUID    `json:"message_id"`
+	CreatedAt  time.Time    `json:"created_at"`
 	OldContent string       `json:"old_content"`
 	EditedAt   sql.NullTime `json:"edited_at"`
 	EditNumber int32        `json:"edit_number"`
@@ -360,18 +436,16 @@ type MessageReminder struct {
 	ID        uuid.UUID    `json:"id"`
 	UserID    uuid.UUID    `json:"user_id"`
 	MessageID uuid.UUID    `json:"message_id"`
+	CreatedAt time.Time    `json:"created_at"`
 	RemindAt  time.Time    `json:"remind_at"`
 	IsSent    sql.NullBool `json:"is_sent"`
-	CreatedAt sql.NullTime `json:"created_at"`
 }
 
 type MessageStatus struct {
-	MessageID   uuid.UUID    `json:"message_id"`
-	UserID      uuid.UUID    `json:"user_id"`
-	Delivered   sql.NullBool `json:"delivered"`
-	Read        sql.NullBool `json:"read"`
-	DeliveredAt sql.NullTime `json:"delivered_at"`
-	ReadAt      sql.NullTime `json:"read_at"`
+	MessageID uuid.UUID `json:"message_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UserID    uuid.UUID `json:"user_id"`
+	Status    string    `json:"status"`
 }
 
 type Notification struct {
@@ -413,23 +487,36 @@ type Passkey struct {
 	CreatedAt    sql.NullTime   `json:"created_at"`
 }
 
+type Payment struct {
+	ID          uuid.UUID       `json:"id"`
+	BotID       uuid.UUID       `json:"bot_id"`
+	UserID      uuid.UUID       `json:"user_id"`
+	Amount      int64           `json:"amount"`
+	Currency    string          `json:"currency"`
+	Status      string          `json:"status"`
+	StripeID    string          `json:"stripe_id"`
+	Description string          `json:"description"`
+	Metadata    json.RawMessage `json:"metadata"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
 type PinnedMessage struct {
 	ChatID    uuid.UUID    `json:"chat_id"`
 	MessageID uuid.UUID    `json:"message_id"`
+	CreatedAt time.Time    `json:"created_at"`
 	PinnedBy  uuid.UUID    `json:"pinned_by"`
 	PinnedAt  sql.NullTime `json:"pinned_at"`
 }
 
 type Poll struct {
-	ID            uuid.UUID     `json:"id"`
-	MessageID     uuid.UUID     `json:"message_id"`
-	Question      string        `json:"question"`
-	IsAnonymous   sql.NullBool  `json:"is_anonymous"`
-	IsMultiple    sql.NullBool  `json:"is_multiple"`
-	IsQuiz        sql.NullBool  `json:"is_quiz"`
-	CorrectOption sql.NullInt32 `json:"correct_option"`
-	ExpiresAt     sql.NullTime  `json:"expires_at"`
-	CreatedAt     sql.NullTime  `json:"created_at"`
+	ID        uuid.UUID       `json:"id"`
+	MessageID uuid.UUID       `json:"message_id"`
+	CreatedAt time.Time       `json:"created_at"`
+	Question  string          `json:"question"`
+	Options   json.RawMessage `json:"options"`
+	Votes     json.RawMessage `json:"votes"`
+	IsClosed  sql.NullBool    `json:"is_closed"`
 }
 
 type PollOption struct {
@@ -445,6 +532,14 @@ type PollVote struct {
 	OptionID  uuid.UUID    `json:"option_id"`
 	UserID    uuid.UUID    `json:"user_id"`
 	CreatedAt sql.NullTime `json:"created_at"`
+}
+
+type PremiumSetting struct {
+	UserID             uuid.UUID `json:"user_id"`
+	HidePhone          bool      `json:"hide_phone"`
+	AwayMessage        string    `json:"away_message"`
+	AwayMessageEnabled bool      `json:"away_message_enabled"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type QuickReply struct {
@@ -463,15 +558,49 @@ type RateLimit struct {
 
 type Reaction struct {
 	MessageID uuid.UUID    `json:"message_id"`
+	CreatedAt time.Time    `json:"created_at"`
 	UserID    uuid.UUID    `json:"user_id"`
 	Emoji     string       `json:"emoji"`
-	CreatedAt sql.NullTime `json:"created_at"`
+	ReactedAt sql.NullTime `json:"reacted_at"`
+}
+
+type RecoveryRequest struct {
+	ID              uuid.UUID             `json:"id"`
+	SessionID       uuid.UUID             `json:"session_id"`
+	RequesterID     uuid.UUID             `json:"requester_id"`
+	Status          sql.NullString        `json:"status"`
+	CollectedShares pqtype.NullRawMessage `json:"collected_shares"`
+	CreatedAt       sql.NullTime          `json:"created_at"`
+	ExpiresAt       sql.NullTime          `json:"expires_at"`
+}
+
+type RecoverySession struct {
+	ID              uuid.UUID      `json:"id"`
+	UserID          uuid.UUID      `json:"user_id"`
+	Threshold       int32          `json:"threshold"`
+	TotalShares     int32          `json:"total_shares"`
+	Status          sql.NullString `json:"status"`
+	EncryptedSecret string         `json:"encrypted_secret"`
+	CreatedAt       sql.NullTime   `json:"created_at"`
+	ExpiresAt       sql.NullTime   `json:"expires_at"`
+}
+
+type RecoveryShare struct {
+	ID          uuid.UUID    `json:"id"`
+	SessionID   uuid.UUID    `json:"session_id"`
+	GuardianID  uuid.UUID    `json:"guardian_id"`
+	ShareIndex  int32        `json:"share_index"`
+	ShareData   string       `json:"share_data"`
+	IsSubmitted sql.NullBool `json:"is_submitted"`
+	SubmittedAt sql.NullTime `json:"submitted_at"`
+	CreatedAt   sql.NullTime `json:"created_at"`
 }
 
 type SavedMessage struct {
 	ID        uuid.UUID    `json:"id"`
 	UserID    uuid.UUID    `json:"user_id"`
 	MessageID uuid.UUID    `json:"message_id"`
+	CreatedAt time.Time    `json:"created_at"`
 	SavedAt   sql.NullTime `json:"saved_at"`
 }
 
@@ -504,14 +633,19 @@ type Sticker struct {
 	Emoji     sql.NullString `json:"emoji"`
 	Url       string         `json:"url"`
 	CreatedAt sql.NullTime   `json:"created_at"`
+	MediaID   uuid.NullUUID  `json:"media_id"`
+	Position  sql.NullInt32  `json:"position"`
+	Format    sql.NullString `json:"format"`
+	LottieUrl sql.NullString `json:"lottie_url"`
 }
 
 type StickerPack struct {
-	ID         uuid.UUID     `json:"id"`
-	Name       string        `json:"name"`
-	AuthorID   uuid.NullUUID `json:"author_id"`
-	IsOfficial sql.NullBool  `json:"is_official"`
-	CreatedAt  sql.NullTime  `json:"created_at"`
+	ID         uuid.UUID      `json:"id"`
+	Name       string         `json:"name"`
+	AuthorID   uuid.NullUUID  `json:"author_id"`
+	IsOfficial sql.NullBool   `json:"is_official"`
+	CreatedAt  sql.NullTime   `json:"created_at"`
+	ThumbUrl   sql.NullString `json:"thumb_url"`
 }
 
 type Story struct {
@@ -525,6 +659,26 @@ type Story struct {
 	ExpiresAt    sql.NullTime          `json:"expires_at"`
 	CreatedAt    sql.NullTime          `json:"created_at"`
 	Metadata     pqtype.NullRawMessage `json:"metadata"`
+	IsArchived   sql.NullBool          `json:"is_archived"`
+	Audience     sql.NullString        `json:"audience"`
+	MediaID      uuid.NullUUID         `json:"media_id"`
+	StickerData  pqtype.NullRawMessage `json:"sticker_data"`
+	MusicData    pqtype.NullRawMessage `json:"music_data"`
+}
+
+type StoryArchive struct {
+	ID         uuid.UUID `json:"id"`
+	UserID     uuid.UUID `json:"user_id"`
+	StoryID    uuid.UUID `json:"story_id"`
+	ArchivedAt time.Time `json:"archived_at"`
+}
+
+type StoryReaction struct {
+	ID        uuid.UUID `json:"id"`
+	StoryID   uuid.UUID `json:"story_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Emoji     string    `json:"emoji"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type StoryView struct {
@@ -534,15 +688,20 @@ type StoryView struct {
 }
 
 type Subscription struct {
-	ID         uuid.UUID             `json:"id"`
-	UserID     uuid.UUID             `json:"user_id"`
-	Plan       string                `json:"plan"`
-	Status     sql.NullString        `json:"status"`
-	StartedAt  sql.NullTime          `json:"started_at"`
-	ExpiresAt  sql.NullTime          `json:"expires_at"`
-	AutoRenew  sql.NullBool          `json:"auto_renew"`
-	PaymentRef sql.NullString        `json:"payment_ref"`
-	Metadata   pqtype.NullRawMessage `json:"metadata"`
+	ID                uuid.UUID             `json:"id"`
+	UserID            uuid.UUID             `json:"user_id"`
+	Plan              string                `json:"plan"`
+	Status            string                `json:"status"`
+	StartedAt         sql.NullTime          `json:"started_at"`
+	ExpiresAt         sql.NullTime          `json:"expires_at"`
+	AutoRenew         sql.NullBool          `json:"auto_renew"`
+	PaymentRef        sql.NullString        `json:"payment_ref"`
+	Metadata          pqtype.NullRawMessage `json:"metadata"`
+	StripeCustomerID  string                `json:"stripe_customer_id"`
+	StripeSubID       string                `json:"stripe_sub_id"`
+	CurrentPeriodEnd  sql.NullTime          `json:"current_period_end"`
+	CancelAtPeriodEnd bool                  `json:"cancel_at_period_end"`
+	UpdatedAt         time.Time             `json:"updated_at"`
 }
 
 type User struct {
@@ -573,9 +732,10 @@ type User struct {
 }
 
 type UserStickerPack struct {
-	UserID  uuid.UUID    `json:"user_id"`
-	PackID  uuid.UUID    `json:"pack_id"`
-	AddedAt sql.NullTime `json:"added_at"`
+	UserID   uuid.UUID     `json:"user_id"`
+	PackID   uuid.UUID     `json:"pack_id"`
+	AddedAt  sql.NullTime  `json:"added_at"`
+	Position sql.NullInt32 `json:"position"`
 }
 
 type VoiceRoom struct {
