@@ -14,7 +14,7 @@ import (
 
 const countAvailableOneTimePreKeys = `-- name: CountAvailableOneTimePreKeys :one
 SELECT COUNT(*) FROM one_time_prekeys
-WHERE user_id = $1 AND device_id = $2 AND is_used = FALSE
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 AND is_used = FALSE
 `
 
 type CountAvailableOneTimePreKeysParams struct {
@@ -31,7 +31,7 @@ func (q *Queries) CountAvailableOneTimePreKeys(ctx context.Context, arg CountAva
 
 const deleteOldSignedPreKeys = `-- name: DeleteOldSignedPreKeys :exec
 DELETE FROM signed_prekeys
-WHERE user_id = $1 AND device_id = $2
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
   AND key_id != $3
 `
 
@@ -52,7 +52,7 @@ SET is_used = TRUE, used_at = NOW()
 WHERE id = (
     SELECT otpk.id FROM one_time_prekeys otpk
     WHERE otpk.user_id = $1
-      AND otpk.device_id = $2
+      AND otpk.device_id IS NOT DISTINCT FROM $2
       AND otpk.is_used = FALSE
     ORDER BY otpk.created_at ASC
     LIMIT 1
@@ -84,7 +84,7 @@ func (q *Queries) GetAndUseOneTimePreKey(ctx context.Context, arg GetAndUseOneTi
 
 const getIdentityKey = `-- name: GetIdentityKey :one
 SELECT id, user_id, device_id, public_key, registration_id, created_at FROM identity_keys
-WHERE user_id = $1 AND device_id = $2
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
 `
 
 type GetIdentityKeyParams struct {
@@ -143,7 +143,7 @@ func (q *Queries) GetIdentityKeysByUser(ctx context.Context, userID uuid.UUID) (
 
 const getKeyBundle = `-- name: GetKeyBundle :one
 SELECT user_id, device_id, bundle, updated_at FROM key_bundles
-WHERE user_id = $1 AND device_id = $2
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
 `
 
 type GetKeyBundleParams struct {
@@ -198,7 +198,7 @@ func (q *Queries) GetKeyBundlesByUser(ctx context.Context, userID uuid.UUID) ([]
 
 const getSignedPreKey = `-- name: GetSignedPreKey :one
 SELECT id, user_id, device_id, key_id, public_key, signature, created_at FROM signed_prekeys
-WHERE user_id = $1 AND device_id = $2
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
 ORDER BY created_at DESC
 LIMIT 1
 `

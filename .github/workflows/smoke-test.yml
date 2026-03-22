@@ -1,0 +1,60 @@
+name: Smoke Test
+
+on:
+  # Запускается автоматически после успешного Deploy
+  # Имя workflow должно совпадать точно — "Deploy"
+  workflow_run:
+    workflows: ["Deploy"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "URL для тестирования"
+        required: false
+        default: "http://localhost:8080"
+
+jobs:
+  smoke:
+    name: k6 Smoke Test
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          curl -L https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz | tar xvz
+          sudo mv k6-v0.54.0-linux-amd64/k6 /usr/local/bin/
+
+      - name: Wait for app to be ready
+        run: |
+          URL="${{ github.event.inputs.base_url || format('https://{0}', secrets.DOMAIN) }}"
+          echo "Waiting for $URL/health..."
+          for i in $(seq 1 30); do
+            if curl -sf "$URL/health" > /dev/null; then
+              echo "✅ App is ready"
+              exit 0
+            fi
+            echo "Attempt $i/30..."
+            sleep 5
+          done
+          echo "❌ App did not respond in time"
+          exit 1
+
+      - name: Run smoke test
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url || format('https://{0}', secrets.DOMAIN) }}
+        run: |
+          k6 run \
+            --env BASE_URL=$BASE_URL \
+            --out json=k6/results.json \
+            k6/smoke_test.js
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-results
+          path: k6/results.json

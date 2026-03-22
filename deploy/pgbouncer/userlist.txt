@@ -1,0 +1,8 @@
+# deploy/pgbouncer/userlist.txt
+# Формат: "username" "password"
+# Пароль ДОЛЖЕН совпадать с DB_PASSWORD в .env
+# В docker-compose.yml entrypoint перезаписывает этот файл автоматически:
+#   echo '"$DB_USER" "$DB_PASSWORD"' > /etc/pgbouncer/userlist.txt
+# Этот файл используется только как fallback / для локальной разработки
+
+"messenger_user" "CHANGE_ME_same_as_DB_PASSWORD"

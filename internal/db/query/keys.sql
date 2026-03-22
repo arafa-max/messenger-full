@@ -8,7 +8,7 @@ RETURNING *;
 
 -- name: GetIdentityKey :one
 SELECT * FROM identity_keys
-WHERE user_id = $1 AND device_id = $2;
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2;
 
 -- name: GetIdentityKeysByUser :many
 SELECT * FROM identity_keys
@@ -28,13 +28,13 @@ RETURNING *;
 
 -- name: GetSignedPreKey :one
 SELECT * FROM signed_prekeys
-WHERE user_id = $1 AND device_id = $2
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
 ORDER BY created_at DESC
 LIMIT 1;
 
 -- name: DeleteOldSignedPreKeys :exec
 DELETE FROM signed_prekeys
-WHERE user_id = $1 AND device_id = $2
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
   AND key_id != $3;
 
 -- ============================================
@@ -51,7 +51,7 @@ SET is_used = TRUE, used_at = NOW()
 WHERE id = (
     SELECT otpk.id FROM one_time_prekeys otpk
     WHERE otpk.user_id = $1
-      AND otpk.device_id = $2
+      AND otpk.device_id IS NOT DISTINCT FROM $2
       AND otpk.is_used = FALSE
     ORDER BY otpk.created_at ASC
     LIMIT 1
@@ -61,7 +61,7 @@ RETURNING *;
 
 -- name: CountAvailableOneTimePreKeys :one
 SELECT COUNT(*) FROM one_time_prekeys
-WHERE user_id = $1 AND device_id = $2 AND is_used = FALSE;
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 AND is_used = FALSE;
 
 -- ============================================
 -- KEY BUNDLE
@@ -77,7 +77,7 @@ RETURNING *;
 
 -- name: GetKeyBundle :one
 SELECT * FROM key_bundles
-WHERE user_id = $1 AND device_id = $2;
+WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2;
 
 -- name: GetKeyBundlesByUser :many
 SELECT * FROM key_bundles

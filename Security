@@ -1,0 +1,81 @@
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| latest (main) | ✅ |
+
+## Reporting a Vulnerability
+
+**Please do NOT create public GitHub issues for security vulnerabilities.**
+
+If you discover a security vulnerability, please report it responsibly:
+
+📧 **Email**: afx83635@gmail.com
+🔐 **PGP**: (добавь свой PGP ключ если есть)
+
+### What to include
+
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (optional)
+
+We will respond within **48 hours** and aim to release a fix within **7 days** for critical issues.
+
+
+## Bug Bounty Program
+
+We reward responsible disclosure of security vulnerabilities.
+
+### Scope
+
+**In scope:**
+- Authentication & authorization bypass
+- E2EE / Signal Protocol implementation flaws
+- SQL injection, XSS, CSRF
+- WebSocket security issues
+- JWT token vulnerabilities
+- Data exposure / GDPR violations
+- Rate limiting bypass
+- TURN server abuse
+
+**Out of scope:**
+- Denial of Service (DoS/DDoS)
+- Social engineering
+- Physical attacks
+- Issues in third-party dependencies (report to them directly)
+- Spam or abuse
+
+
+### Hall of Fame
+
+*Be the first to find a vulnerability and get listed here.*
+
+---
+
+## Security Features
+
+This messenger implements the following security measures:
+
+- **E2EE**: Signal Protocol (X3DH + Double Ratchet + PQXDH/ML-KEM-768)
+- **Sealed Sender**: hides sender identity from the server
+- **Key Transparency**: public audit log of identity keys
+- **Canary Token**: detects server compromise
+- **Trusted Contacts**: account recovery without server involvement
+- **Perfect Forward Secrecy**: session keys rotated per message
+- **TLS 1.3**: all traffic encrypted in transit
+- **bcrypt**: passwords hashed with cost factor 12
+- **JWT**: short-lived access tokens (15 min) + refresh rotation
+- **Rate limiting**: Redis sliding window on all auth endpoints
+- **Proof-of-Work**: anti-bot protection on registration
+
+---
+
+## Disclosure Policy
+
+- We follow **Coordinated Vulnerability Disclosure (CVD)**
+- We will not take legal action against researchers who follow this policy
+- We ask for **90 days** before public disclosure
+- We will credit you in the release notes (unless you prefer anonymity)

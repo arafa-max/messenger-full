@@ -47,17 +47,18 @@ type GetKeyBundleResponse struct {
 // @Router /keys [post]
 func UploadKeys(q *db.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := c.GetString("user_id")
-		deviceID := c.GetString("device_id")
+		var userUUID uuid.UUID
+		if uid, ok := c.Get("user_id"); ok {
+			userUUID, _ = uid.(uuid.UUID)
+		}
+		deviceNullUUID := parseNullUUID(c.GetString("device_id"))
 
 		var req UploadKeysRequest
+
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		userUUID := parseUUID(userID)
-		deviceNullUUID := parseNullUUID(deviceID)
 
 		// Сохраняем Identity Key
 		_, err := q.SaveIdentityKey(c.Request.Context(), db.SaveIdentityKeyParams{
@@ -108,32 +109,23 @@ func UploadKeys(q *db.Queries) gin.HandlerFunc {
 		// Сохраняем Key Bundle кэш
 		// FIX: SaveKeyBundle ожидает uuid.UUID (не NullUUID) для device_id
 		// Если устройство не указано — используем нулевой UUID
-		var deviceUUIDForBundle uuid.UUID
 		if deviceNullUUID.Valid {
-			deviceUUIDForBundle = deviceNullUUID.UUID
-		}
-
-		signedPubBytes, _ := crypto.DecodeKey(req.SignedPreKey.PublicKey)
-		sigBytes, _ := crypto.DecodeKey(req.SignedPreKey.Signature)
-
-		bundle := crypto.KeyBundle{
-			IdentityKey: []byte(req.IdentityKey),
-			SignedPreKey: crypto.SignedPreKeyBundle{
-				KeyID:     req.SignedPreKey.KeyID,
-				PublicKey: signedPubBytes,
-				Signature: sigBytes,
-			},
-		}
-		bundleJSON, _ := json.Marshal(bundle)
-
-		_, err = q.SaveKeyBundle(c.Request.Context(), db.SaveKeyBundleParams{
-			UserID:   userUUID,
-			DeviceID: deviceUUIDForBundle, // FIX: uuid.UUID, не NullUUID
-			Bundle:   bundleJSON,
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "save bundle failed"})
-			return
+			signedPubBytes, _ := crypto.DecodeKey(req.SignedPreKey.PublicKey)
+			sigBytes, _ := crypto.DecodeKey(req.SignedPreKey.Signature)
+			bundle := crypto.KeyBundle{
+				IdentityKey: []byte(req.IdentityKey),
+				SignedPreKey: crypto.SignedPreKeyBundle{
+					KeyID:     req.SignedPreKey.KeyID,
+					PublicKey: signedPubBytes,
+					Signature: sigBytes,
+				},
+			}
+			bundleJSON, _ := json.Marshal(bundle)
+			_, _ = q.SaveKeyBundle(c.Request.Context(), db.SaveKeyBundleParams{
+				UserID:   userUUID,
+				DeviceID: deviceNullUUID.UUID,
+				Bundle:   bundleJSON,
+			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -214,12 +206,14 @@ func GetKeyBundle(q *db.Queries) gin.HandlerFunc {
 // @Router /keys/count [get]
 func GetPreKeyCount(q *db.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := c.GetString("user_id")
-		deviceID := c.GetString("device_id")
+		var userUUID uuid.UUID
+		if uid, ok := c.Get("user_id"); ok {
+			userUUID, _ = uid.(uuid.UUID)
+		}
 
 		count, err := q.CountAvailableOneTimePreKeys(c.Request.Context(), db.CountAvailableOneTimePreKeysParams{
-			UserID:   parseUUID(userID),
-			DeviceID: parseNullUUID(deviceID),
+			UserID:   userUUID,
+			DeviceID: parseNullUUID(c.GetString("device_id")),
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "count failed"})

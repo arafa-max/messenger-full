@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"messenger/internal/database"
+	db "messenger/internal/db/sqlc"
 	rdb "messenger/internal/redis"
 )
 
@@ -82,12 +84,14 @@ type Client struct {
 
 // WSHandler — менеджер всех соединений + Redis pub/sub
 type WSHandler struct {
-	db    *database.DB
-	redis *rdb.Client
+	db      *database.DB
+	redis   *rdb.Client
+	queries *db.Queries
+	users   map[string][]*Client
+	mu      sync.RWMutex
 
 	// userID → список клиентов (один юзер, несколько устройств)
-	users map[string][]*Client
-	mu    sync.RWMutex
+
 }
 
 func NewWSHandler(db *database.DB) *WSHandler {
@@ -109,7 +113,10 @@ func NewWSHandlerWithRedis(db *database.DB, redis *rdb.Client) *WSHandler {
 // ─── Handle ──────────────────────────────────────────────────────────────────
 
 func (h *WSHandler) Handle(c *gin.Context) {
-	userID := c.GetString("user_id")
+	var userID string
+	if uid, ok := c.Get("user_id"); ok {
+		userID = uid.(uuid.UUID).String()
+	}
 	deviceID := c.GetString("device_id")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -137,18 +144,15 @@ func (h *WSHandler) Handle(c *gin.Context) {
 	log.Printf("🟢 ws connected: user=%s device=%s total_users=%d",
 		userID, deviceID, h.userCount())
 
-	// Запускаем Redis subscriber для этого юзера
 	if h.redis != nil {
-		go h.subscribeRedis(ctx, client)
+		go h.subscribeRedisBinary(ctx, client)
 	}
 
-	// Уведомляем других что юзер онлайн
 	h.publishPresence(userID, EventOnline)
 
 	go client.writePump()
 	client.readPump()
 
-	// После отключения
 	cancel()
 }
 
@@ -340,6 +344,10 @@ func (c *Client) readPump() {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
+	c.conn.SetPingHandler(func(data string) error {
+		c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return c.conn.WriteMessage(websocket.PongMessage, []byte(data))
+	})
 
 	for {
 		_, raw, err := c.conn.ReadMessage()
@@ -347,8 +355,8 @@ func (c *Client) readPump() {
 			break
 		}
 
-		var msg WSMessage
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		msg, err := decodeAuto(raw)
+		if err != nil {
 			log.Printf("⚠️ ws parse error user=%s: %v", c.userID, err)
 			continue
 		}
@@ -356,7 +364,7 @@ func (c *Client) readPump() {
 		msg.From = c.userID
 		msg.TS = time.Now().UnixMilli()
 
-		c.handler.route(c, &msg)
+		c.handler.route(c, msg)
 	}
 }
 
@@ -375,7 +383,7 @@ func (c *Client) writePump() {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := c.conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
 				return
 			}
 
@@ -396,8 +404,12 @@ func (h *WSHandler) route(sender *Client, msg *WSMessage) {
 	case EventMessage:
 		if msg.ChatID != "" {
 			h.publishToChat(msg.ChatID, msg, sender.userID)
-		}
 
+			// Away message — проверяем получателя
+			if h.queries != nil && msg.To != "" {
+				go h.sendAwayMessageIfNeeded(msg.To, sender.userID, msg.ChatID)
+			}
+		}
 	case EventTyping:
 		if msg.ChatID != "" {
 			h.publishToChat(msg.ChatID, msg, sender.userID)
@@ -424,7 +436,16 @@ func (h *WSHandler) route(sender *Client, msg *WSMessage) {
 		if msg.ChatID != "" {
 			h.publishToChat(msg.ChatID, msg, sender.userID)
 		}
-
+	case "ping":
+		pong := &WSMessage{
+			Type: "pong",
+			TS:   time.Now().UnixMilli(),
+		}
+		raw, _ := json.Marshal(pong)
+		select {
+		case sender.send <- raw:
+		default:
+		}
 	default:
 		log.Printf("⚠️ unknown event type: %s from user=%s", msg.Type, sender.userID)
 	}
@@ -534,4 +555,114 @@ func (h *WSHandler) fanOutChatEvent(chatID string, raw []byte) {
 			}
 		}
 	}
+}
+
+func (h *WSHandler) SetQueries(q *db.Queries) {
+	h.queries = q
+}
+
+func (h *WSHandler) sendAwayMessageIfNeeded(recipientID, senderID, chatID string) {
+	recipientUUID, err := uuid.Parse(recipientID)
+	if err != nil {
+		return
+	}
+
+	// Если получатель онлайн — не отправляем
+	if h.IsUserOnline(recipientID) {
+		return
+	}
+
+	ctx := context.Background()
+	settings, err := h.queries.GetPremiumSettings(ctx, recipientUUID)
+	if err != nil || !settings.AwayMessageEnabled || settings.AwayMessage == "" {
+		return
+	}
+
+	// Отправляем автоответ от имени получателя
+	awayMsg := &WSMessage{
+		Type:   EventMessage,
+		From:   recipientID,
+		To:     senderID,
+		ChatID: chatID,
+		TS:     time.Now().UnixMilli(),
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"content": settings.AwayMessage,
+		"type":    "text",
+	})
+	awayMsg.Payload = payload
+
+	h.publishToUser(senderID, awayMsg)
+}
+
+type ScreenShareRequest struct {
+	ToUserID string `json:"to_user_id"`
+	ChatID   string `json:"chat_id"`
+	SDP      string `json:"sdp"`
+	CallID   string `json:"call_id" binding:"required"`
+}
+
+// StartScreenShare — POST /api/v1/calls/:id/screen/start
+func (h *CallHandler) StartScreenShare(c *gin.Context) {
+	fromUserID := c.GetString("userID")
+
+	var req ScreenShareRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	msg := &WSMessage{
+		Type:   EventScreenShareOffer,
+		From:   fromUserID,
+		To:     req.ToUserID,
+		ChatID: req.ChatID,
+		Payload: toPayload(CallPayload{
+			CallID: req.CallID,
+			SDP:    req.SDP,
+		}),
+		TS: time.Now().UnixMilli(),
+	}
+
+	if req.ToUserID != "" {
+		h.ws.SendSignal(req.ToUserID, msg)
+	} else if req.ChatID != "" {
+		h.ws.broadcastToChat(req.ChatID, msg, fromUserID)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "to_user_id or chat_id required"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "screen_share_started"})
+}
+
+// StopScreenShare — POST /api/v1/calls/:id/screen/stop
+func (h *CallHandler) StopScreenShare(c *gin.Context) {
+	fromUserID := c.GetString("userID")
+
+	var req ScreenShareRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	msg := &WSMessage{
+		Type:   EventScreenShareStop,
+		From:   fromUserID,
+		To:     req.ToUserID,
+		ChatID: req.ChatID,
+		Payload: toPayload(CallPayload{
+			CallID: req.CallID,
+		}),
+		TS: time.Now().UnixMilli(),
+	}
+
+	if req.ToUserID != "" {
+		h.ws.SendSignal(req.ToUserID, msg)
+	} else if req.ChatID != "" {
+		h.ws.broadcastToChat(req.ChatID, msg, fromUserID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "screen_share_stopped"})
 }

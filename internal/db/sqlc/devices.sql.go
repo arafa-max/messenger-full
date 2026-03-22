@@ -85,25 +85,74 @@ func (q *Queries) GetDeviceByID(ctx context.Context, id uuid.UUID) (Device, erro
 	return i, err
 }
 
-const getUserDevices = `-- name: GetUserDevices :one
+const getUserDevices = `-- name: GetUserDevices :many
 SELECT id, user_id, push_token, platform, device_name, last_active, is_active, created_at, metadata FROM devices WHERE user_id = $1 AND is_active= TRUE
 `
 
-func (q *Queries) GetUserDevices(ctx context.Context, userID uuid.UUID) (Device, error) {
-	row := q.db.QueryRowContext(ctx, getUserDevices, userID)
-	var i Device
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.PushToken,
-		&i.Platform,
-		&i.DeviceName,
-		&i.LastActive,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.Metadata,
-	)
-	return i, err
+func (q *Queries) GetUserDevices(ctx context.Context, userID uuid.UUID) ([]Device, error) {
+	rows, err := q.db.QueryContext(ctx, getUserDevices, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Device
+	for rows.Next() {
+		var i Device
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.PushToken,
+			&i.Platform,
+			&i.DeviceName,
+			&i.LastActive,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUserPushTokens = `-- name: GetUserPushTokens :many
+SELECT push_token, platform FROM devices
+WHERE user_id = $1 AND is_active = TRUE AND push_token IS NOT NULL
+`
+
+type GetUserPushTokensRow struct {
+	PushToken sql.NullString `json:"push_token"`
+	Platform  string         `json:"platform"`
+}
+
+func (q *Queries) GetUserPushTokens(ctx context.Context, userID uuid.UUID) ([]GetUserPushTokensRow, error) {
+	rows, err := q.db.QueryContext(ctx, getUserPushTokens, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUserPushTokensRow
+	for rows.Next() {
+		var i GetUserPushTokensRow
+		if err := rows.Scan(&i.PushToken, &i.Platform); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateDevicePushToken = `-- name: UpdateDevicePushToken :exec

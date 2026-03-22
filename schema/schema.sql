@@ -35,7 +35,10 @@ CREATE TABLE users (
     is_premium          BOOLEAN DEFAULT FALSE,
     premium_until       TIMESTAMPTZ,
     last_seen_privacy   VARCHAR(10) DEFAULT 'everyone',
-    online_privacy      VARCHAR(10) DEFAULT 'everyone'
+    online_privacy      VARCHAR(10) DEFAULT 'everyone',
+    birth_year INT,
+    accepted_terms BOOLEAN DEFAULT false,
+    terms_accepted_at TIMESTAMPTZ
 );
 
 -- ============================================
@@ -323,21 +326,20 @@ CREATE TABLE media_search_index (
 -- ============================================
 -- PASSKEYS (002)
 -- ============================================
-CREATE TABLE passkeys (
+CREATE TABLE IF NOT EXISTS passkeys (
     id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     credential_id TEXT UNIQUE NOT NULL,
     public_key    BYTEA NOT NULL,
-    aaguid        UUID,
-    sign_count    BIGINT DEFAULT 0,
-    device_type   VARCHAR(32),
-    backed_up     BOOLEAN DEFAULT FALSE,
-    transports    TEXT[],
-    name          VARCHAR(100),
-    last_used_at  TIMESTAMPTZ,
-    created_at    TIMESTAMPTZ DEFAULT NOW()
+    aaguid        BYTEA NOT NULL DEFAULT '\x'::bytea,
+    sign_count    BIGINT NOT NULL DEFAULT 0,
+    name          TEXT NOT NULL DEFAULT 'My Passkey',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at  TIMESTAMPTZ
 );
 
+CREATE INDEX IF NOT EXISTS idx_passkeys_user_id ON passkeys(user_id);
+CREATE INDEX IF NOT EXISTS idx_passkeys_credential_id ON passkeys(credential_id);
 -- ============================================
 -- E2EE КЛЮЧИ (002)
 -- ============================================
@@ -629,7 +631,8 @@ CREATE TABLE sticker_packs (
     author_id   UUID REFERENCES users(id) ON DELETE SET NULL,
     is_official BOOLEAN DEFAULT FALSE,
     created_at  TIMESTAMPTZ DEFAULT NOW(),
-    thumb_url   TEXT
+    thumb_url   TEXT,
+    is_premium  BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE stickers (
@@ -804,7 +807,20 @@ CREATE TABLE premium_settings (
     away_message_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
+CREATE TABLE business_profiles (
+    user_id         UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    business_name   TEXT NOT NULL DEFAULT '',
+    category        TEXT NOT NULL DEFAULT '',
+    description     TEXT NOT NULL DEFAULT '',
+    address         TEXT NOT NULL DEFAULT '',
+    email           TEXT NOT NULL DEFAULT '',
+    website         TEXT NOT NULL DEFAULT '',
+    phone_public    TEXT NOT NULL DEFAULT '',
+    working_hours   JSONB NOT NULL DEFAULT '{}',
+    is_verified     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 -- ============================================
 -- CHAT LABELS (021)
 -- ============================================
@@ -816,3 +832,58 @@ CREATE TABLE chat_labels (
     color      TEXT NOT NULL DEFAULT '#6B7280',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- ============================================
+-- OAUTH ACCOUNTS (025)
+-- ============================================
+CREATE TABLE oauth_accounts (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider    VARCHAR(32)  NOT NULL,
+    provider_id VARCHAR(256) NOT NULL,
+    email       VARCHAR(255),
+    avatar_url  TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_oauth_provider UNIQUE (provider, provider_id)
+);
+
+-- ──────────────────────────────────────────────────────────────
+-- Reports & Bans (Halal system)
+-- ──────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS reports (
+    id BIGSERIAL PRIMARY KEY,
+    reporter_id UUID NOT NULL,
+    reported_user_id UUID NOT NULL,
+    reported_message_id BIGINT,
+    reason VARCHAR(50) NOT NULL,
+    description TEXT,
+    status VARCHAR(20) DEFAULT 'pending',
+    reviewed_by UUID,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_bans (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    banned_by UUID,
+    reason TEXT NOT NULL,
+    permanent BOOLEAN DEFAULT false,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================
+-- USER BLOCKS (027)
+-- ============================================
+CREATE TABLE user_blocks (
+    id         BIGSERIAL PRIMARY KEY,
+    blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (blocker_id, blocked_id)
+);
+
+CREATE INDEX idx_blocks_blocker ON user_blocks(blocker_id);
+CREATE INDEX idx_blocks_blocked ON user_blocks(blocked_id);
+

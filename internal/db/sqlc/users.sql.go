@@ -14,26 +14,37 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users(username,phone,email,password,language)
-VALUES ($1,$2,$3,$4,$5)
-RETURNING id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy
+INSERT INTO users (
+    username,
+    email,
+    password,
+    language,
+    birth_year,
+    accepted_terms,
+    terms_accepted_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy, birth_year, accepted_terms, terms_accepted_at
 `
 
 type CreateUserParams struct {
-	Username string         `json:"username"`
-	Phone    sql.NullString `json:"phone"`
-	Email    sql.NullString `json:"email"`
-	Password string         `json:"password"`
-	Language sql.NullString `json:"language"`
+	Username        string         `json:"username"`
+	Email           sql.NullString `json:"email"`
+	Password        string         `json:"password"`
+	Language        sql.NullString `json:"language"`
+	BirthYear       sql.NullInt32  `json:"birth_year"`
+	AcceptedTerms   sql.NullBool   `json:"accepted_terms"`
+	TermsAcceptedAt sql.NullTime   `json:"terms_accepted_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
 	row := q.db.QueryRowContext(ctx, createUser,
 		arg.Username,
-		arg.Phone,
 		arg.Email,
 		arg.Password,
 		arg.Language,
+		arg.BirthYear,
+		arg.AcceptedTerms,
+		arg.TermsAcceptedAt,
 	)
 	var i User
 	err := row.Scan(
@@ -61,21 +72,15 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.PremiumUntil,
 		&i.LastSeenPrivacy,
 		&i.OnlinePrivacy,
+		&i.BirthYear,
+		&i.AcceptedTerms,
+		&i.TermsAcceptedAt,
 	)
 	return i, err
 }
 
-const deleteUser = `-- name: DeleteUser :exec
-UPDATE users SET is_deleted = TRUE,delete_at =NOW()WHERE id =$1
-`
-
-func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, deleteUser, id)
-	return err
-}
-
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE email =$1 AND is_deleted=FALSE
+SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy, birth_year, accepted_terms, terms_accepted_at FROM users WHERE email = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email sql.NullString) (User, error) {
@@ -106,12 +111,15 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email sql.NullString) (Use
 		&i.PremiumUntil,
 		&i.LastSeenPrivacy,
 		&i.OnlinePrivacy,
+		&i.BirthYear,
+		&i.AcceptedTerms,
+		&i.TermsAcceptedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE id = $1 AND is_deleted = FALSE
+SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy, birth_year, accepted_terms, terms_accepted_at FROM users WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
@@ -142,48 +150,15 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.PremiumUntil,
 		&i.LastSeenPrivacy,
 		&i.OnlinePrivacy,
-	)
-	return i, err
-}
-
-const getUserByPhone = `-- name: GetUserByPhone :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE phone =$1 AND is_deleted=FALSE
-`
-
-func (q *Queries) GetUserByPhone(ctx context.Context, phone sql.NullString) (User, error) {
-	row := q.db.QueryRowContext(ctx, getUserByPhone, phone)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Username,
-		&i.Phone,
-		&i.Email,
-		&i.Password,
-		&i.AvatarUrl,
-		&i.Bio,
-		&i.IsOnline,
-		&i.LastSeen,
-		&i.IsVerified,
-		&i.IsBot,
-		&i.IsDeleted,
-		&i.DeleteAt,
-		&i.Language,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Metadata,
-		&i.TotpSecret,
-		&i.TotpPending,
-		pq.Array(&i.TotpBackup),
-		&i.IsPremium,
-		&i.PremiumUntil,
-		&i.LastSeenPrivacy,
-		&i.OnlinePrivacy,
+		&i.BirthYear,
+		&i.AcceptedTerms,
+		&i.TermsAcceptedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy FROM users WHERE username =$1 AND is_deleted=FALSE
+SELECT id, username, phone, email, password, avatar_url, bio, is_online, last_seen, is_verified, is_bot, is_deleted, delete_at, language, created_at, updated_at, metadata, totp_secret, totp_pending, totp_backup, is_premium, premium_until, last_seen_privacy, online_privacy, birth_year, accepted_terms, terms_accepted_at FROM users WHERE username = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -214,12 +189,33 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.PremiumUntil,
 		&i.LastSeenPrivacy,
 		&i.OnlinePrivacy,
+		&i.BirthYear,
+		&i.AcceptedTerms,
+		&i.TermsAcceptedAt,
 	)
 	return i, err
 }
 
+const updateUserAvatar = `-- name: UpdateUserAvatar :exec
+UPDATE users
+SET avatar_url = $2
+WHERE id = $1
+`
+
+type UpdateUserAvatarParams struct {
+	ID        uuid.UUID      `json:"id"`
+	AvatarUrl sql.NullString `json:"avatar_url"`
+}
+
+func (q *Queries) UpdateUserAvatar(ctx context.Context, arg UpdateUserAvatarParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserAvatar, arg.ID, arg.AvatarUrl)
+	return err
+}
+
 const updateUserOnlineStatus = `-- name: UpdateUserOnlineStatus :exec
-UPDATE users SET is_online =$2, last_seen = NOW()WHERE id=$1
+UPDATE users
+SET is_online = $2, last_seen = NOW()
+WHERE id = $1
 `
 
 type UpdateUserOnlineStatusParams struct {
@@ -229,5 +225,22 @@ type UpdateUserOnlineStatusParams struct {
 
 func (q *Queries) UpdateUserOnlineStatus(ctx context.Context, arg UpdateUserOnlineStatusParams) error {
 	_, err := q.db.ExecContext(ctx, updateUserOnlineStatus, arg.ID, arg.IsOnline)
+	return err
+}
+
+const updateUserTerms = `-- name: UpdateUserTerms :exec
+UPDATE users
+SET accepted_terms = $2, terms_accepted_at = $3
+WHERE id = $1
+`
+
+type UpdateUserTermsParams struct {
+	ID              uuid.UUID    `json:"id"`
+	AcceptedTerms   sql.NullBool `json:"accepted_terms"`
+	TermsAcceptedAt sql.NullTime `json:"terms_accepted_at"`
+}
+
+func (q *Queries) UpdateUserTerms(ctx context.Context, arg UpdateUserTermsParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserTerms, arg.ID, arg.AcceptedTerms, arg.TermsAcceptedAt)
 	return err
 }

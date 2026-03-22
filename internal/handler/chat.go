@@ -1318,3 +1318,36 @@ func (h *ChatHandler) RemoveFromCommunity(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "removed"})
 }
+
+// ── PUT /api/v1/chats/:id/slow-mode ───────────────────────────────────────────
+
+type setSlowModeReq struct {
+	Seconds int32 `json:"seconds" binding:"min=0,max=3600"`
+}
+
+func (h *ChatHandler) SetSlowMode(c *gin.Context) {
+	chatID, myID, err := parseChatAndCaller(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !h.isAdminOrOwner(c, chatID, myID) {
+		return
+	}
+
+	var req setSlowModeReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.q.SetSlowMode(c, db.SetSlowModeParams{
+		ID:       chatID,
+		SlowMode: sql.NullInt32{Int32: req.Seconds, Valid: true},
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set slow mode"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"slow_mode": req.Seconds})
+}

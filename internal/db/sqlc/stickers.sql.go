@@ -54,7 +54,7 @@ func (q *Queries) AddStickerToPack(ctx context.Context, arg AddStickerToPackPara
 const createStickerPack = `-- name: CreateStickerPack :one
 INSERT INTO sticker_packs (name, author_id, thumb_url, is_official)
 VALUES ($1, $2, $3, $4)
-RETURNING id, name, author_id, is_official, created_at, thumb_url
+RETURNING id, name, author_id, is_official, created_at, thumb_url, is_premium
 `
 
 type CreateStickerPackParams struct {
@@ -79,6 +79,7 @@ func (q *Queries) CreateStickerPack(ctx context.Context, arg CreateStickerPackPa
 		&i.IsOfficial,
 		&i.CreatedAt,
 		&i.ThumbUrl,
+		&i.IsPremium,
 	)
 	return i, err
 }
@@ -145,6 +146,52 @@ func (q *Queries) GetPackStickers(ctx context.Context, packID uuid.UUID) ([]GetP
 	return items, nil
 }
 
+const getPremiumStickerPacks = `-- name: GetPremiumStickerPacks :many
+SELECT id, name, thumb_url, is_official, is_premium, created_at
+FROM sticker_packs
+WHERE is_premium = TRUE
+ORDER BY created_at DESC
+`
+
+type GetPremiumStickerPacksRow struct {
+	ID         uuid.UUID      `json:"id"`
+	Name       string         `json:"name"`
+	ThumbUrl   sql.NullString `json:"thumb_url"`
+	IsOfficial sql.NullBool   `json:"is_official"`
+	IsPremium  sql.NullBool   `json:"is_premium"`
+	CreatedAt  sql.NullTime   `json:"created_at"`
+}
+
+func (q *Queries) GetPremiumStickerPacks(ctx context.Context) ([]GetPremiumStickerPacksRow, error) {
+	rows, err := q.db.QueryContext(ctx, getPremiumStickerPacks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPremiumStickerPacksRow
+	for rows.Next() {
+		var i GetPremiumStickerPacksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ThumbUrl,
+			&i.IsOfficial,
+			&i.IsPremium,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPublicStickerPacks = `-- name: GetPublicStickerPacks :many
 SELECT
     sp.id,
@@ -179,6 +226,62 @@ func (q *Queries) GetPublicStickerPacks(ctx context.Context) ([]GetPublicSticker
 			&i.ThumbUrl,
 			&i.IsOfficial,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPublicStickerPacksForUser = `-- name: GetPublicStickerPacksForUser :many
+SELECT
+    sp.id, sp.name, sp.thumb_url, sp.is_official, sp.is_premium, sp.created_at,
+    CASE WHEN usp.user_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_installed
+FROM sticker_packs sp
+LEFT JOIN user_sticker_packs usp ON usp.pack_id = sp.id AND usp.user_id = $1
+WHERE sp.is_premium = FALSE OR $2::boolean = TRUE
+ORDER BY sp.is_official DESC, sp.created_at DESC
+`
+
+type GetPublicStickerPacksForUserParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	IsPremium bool      `json:"is_premium"`
+}
+
+type GetPublicStickerPacksForUserRow struct {
+	ID          uuid.UUID      `json:"id"`
+	Name        string         `json:"name"`
+	ThumbUrl    sql.NullString `json:"thumb_url"`
+	IsOfficial  sql.NullBool   `json:"is_official"`
+	IsPremium   sql.NullBool   `json:"is_premium"`
+	CreatedAt   sql.NullTime   `json:"created_at"`
+	IsInstalled bool           `json:"is_installed"`
+}
+
+func (q *Queries) GetPublicStickerPacksForUser(ctx context.Context, arg GetPublicStickerPacksForUserParams) ([]GetPublicStickerPacksForUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, getPublicStickerPacksForUser, arg.UserID, arg.IsPremium)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPublicStickerPacksForUserRow
+	for rows.Next() {
+		var i GetPublicStickerPacksForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ThumbUrl,
+			&i.IsOfficial,
+			&i.IsPremium,
+			&i.CreatedAt,
+			&i.IsInstalled,
 		); err != nil {
 			return nil, err
 		}

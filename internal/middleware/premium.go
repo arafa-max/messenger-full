@@ -6,14 +6,14 @@ import (
 	db "messenger/internal/db/sqlc"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // RequirePremium — middleware для Premium-только роутов
 func RequirePremium(queries *db.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, err := uuid.Parse(c.GetString("user_id"))
-		if err != nil {
+		// FIX: используем type assertion вместо GetString для UUID
+		userID, ok := getUserIDFromContext(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
@@ -27,7 +27,6 @@ func RequirePremium(queries *db.Queries) gin.HandlerFunc {
 			return
 		}
 
-		// Пробрасываем план в контекст
 		c.Set("subscription_plan", sub.Plan)
 		c.Next()
 	}
@@ -36,8 +35,8 @@ func RequirePremium(queries *db.Queries) gin.HandlerFunc {
 // InjectPremiumStatus — не блокирует, просто добавляет статус в контекст
 func InjectPremiumStatus(queries *db.Queries) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, err := uuid.Parse(c.GetString("user_id"))
-		if err != nil {
+		userID, ok := getUserIDFromContext(c)
+		if !ok {
 			c.Set("is_premium", false)
 			c.Next()
 			return

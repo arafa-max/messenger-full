@@ -168,6 +168,21 @@ type BotUpdate struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type BusinessProfile struct {
+	UserID       uuid.UUID       `json:"user_id"`
+	BusinessName string          `json:"business_name"`
+	Category     string          `json:"category"`
+	Description  string          `json:"description"`
+	Address      string          `json:"address"`
+	Email        string          `json:"email"`
+	Website      string          `json:"website"`
+	PhonePublic  string          `json:"phone_public"`
+	WorkingHours json.RawMessage `json:"working_hours"`
+	IsVerified   bool            `json:"is_verified"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+}
+
 type Call struct {
 	ID          uuid.UUID             `json:"id"`
 	ChatID      uuid.NullUUID         `json:"chat_id"`
@@ -461,6 +476,16 @@ type Notification struct {
 	Metadata      pqtype.NullRawMessage `json:"metadata"`
 }
 
+type OauthAccount struct {
+	ID         uuid.UUID      `json:"id"`
+	UserID     uuid.UUID      `json:"user_id"`
+	Provider   string         `json:"provider"`
+	ProviderID string         `json:"provider_id"`
+	Email      sql.NullString `json:"email"`
+	AvatarUrl  sql.NullString `json:"avatar_url"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
 type OneTimePrekey struct {
 	ID        uuid.UUID     `json:"id"`
 	UserID    uuid.UUID     `json:"user_id"`
@@ -473,18 +498,15 @@ type OneTimePrekey struct {
 }
 
 type Passkey struct {
-	ID           uuid.UUID      `json:"id"`
-	UserID       uuid.UUID      `json:"user_id"`
-	CredentialID string         `json:"credential_id"`
-	PublicKey    []byte         `json:"public_key"`
-	Aaguid       uuid.NullUUID  `json:"aaguid"`
-	SignCount    sql.NullInt64  `json:"sign_count"`
-	DeviceType   sql.NullString `json:"device_type"`
-	BackedUp     sql.NullBool   `json:"backed_up"`
-	Transports   []string       `json:"transports"`
-	Name         sql.NullString `json:"name"`
-	LastUsedAt   sql.NullTime   `json:"last_used_at"`
-	CreatedAt    sql.NullTime   `json:"created_at"`
+	ID           uuid.UUID    `json:"id"`
+	UserID       uuid.UUID    `json:"user_id"`
+	CredentialID string       `json:"credential_id"`
+	PublicKey    []byte       `json:"public_key"`
+	Aaguid       []byte       `json:"aaguid"`
+	SignCount    int64        `json:"sign_count"`
+	Name         string       `json:"name"`
+	CreatedAt    time.Time    `json:"created_at"`
+	LastUsedAt   sql.NullTime `json:"last_used_at"`
 }
 
 type Payment struct {
@@ -596,6 +618,19 @@ type RecoveryShare struct {
 	CreatedAt   sql.NullTime `json:"created_at"`
 }
 
+type Report struct {
+	ID                int64          `json:"id"`
+	ReporterID        uuid.UUID      `json:"reporter_id"`
+	ReportedUserID    uuid.UUID      `json:"reported_user_id"`
+	ReportedMessageID sql.NullInt64  `json:"reported_message_id"`
+	Reason            string         `json:"reason"`
+	Description       sql.NullString `json:"description"`
+	Status            sql.NullString `json:"status"`
+	ReviewedBy        uuid.NullUUID  `json:"reviewed_by"`
+	ReviewedAt        sql.NullTime   `json:"reviewed_at"`
+	CreatedAt         sql.NullTime   `json:"created_at"`
+}
+
 type SavedMessage struct {
 	ID        uuid.UUID    `json:"id"`
 	UserID    uuid.UUID    `json:"user_id"`
@@ -646,6 +681,7 @@ type StickerPack struct {
 	IsOfficial sql.NullBool   `json:"is_official"`
 	CreatedAt  sql.NullTime   `json:"created_at"`
 	ThumbUrl   sql.NullString `json:"thumb_url"`
+	IsPremium  sql.NullBool   `json:"is_premium"`
 }
 
 type Story struct {
@@ -729,6 +765,26 @@ type User struct {
 	PremiumUntil    sql.NullTime          `json:"premium_until"`
 	LastSeenPrivacy sql.NullString        `json:"last_seen_privacy"`
 	OnlinePrivacy   sql.NullString        `json:"online_privacy"`
+	BirthYear       sql.NullInt32         `json:"birth_year"`
+	AcceptedTerms   sql.NullBool          `json:"accepted_terms"`
+	TermsAcceptedAt sql.NullTime          `json:"terms_accepted_at"`
+}
+
+type UserBan struct {
+	ID        int64         `json:"id"`
+	UserID    uuid.UUID     `json:"user_id"`
+	BannedBy  uuid.NullUUID `json:"banned_by"`
+	Reason    string        `json:"reason"`
+	Permanent sql.NullBool  `json:"permanent"`
+	ExpiresAt sql.NullTime  `json:"expires_at"`
+	CreatedAt sql.NullTime  `json:"created_at"`
+}
+
+type UserBlock struct {
+	ID        int64        `json:"id"`
+	BlockerID uuid.UUID    `json:"blocker_id"`
+	BlockedID uuid.UUID    `json:"blocked_id"`
+	CreatedAt sql.NullTime `json:"created_at"`
 }
 
 type UserStickerPack struct {

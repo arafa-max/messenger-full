@@ -679,6 +679,36 @@ func (q *Queries) GetLastMessageTime(ctx context.Context, arg GetLastMessageTime
 	return created_at, err
 }
 
+const getMutedChats = `-- name: GetMutedChats :many
+SELECT cm.chat_id FROM chat_members cm
+WHERE cm.user_id = $1
+AND cm.muted_until IS NOT NULL
+AND cm.muted_until > NOW()
+`
+
+func (q *Queries) GetMutedChats(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.QueryContext(ctx, getMutedChats, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var chat_id uuid.UUID
+		if err := rows.Scan(&chat_id); err != nil {
+			return nil, err
+		}
+		items = append(items, chat_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMyFolders = `-- name: GetMyFolders :many
 SELECT id, user_id, name, emoji, position, created_at FROM chat_folders WHERE user_id = $1 ORDER BY position ASC
 `
@@ -799,6 +829,30 @@ func (q *Queries) GetPublicChats(ctx context.Context, arg GetPublicChatsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const getUnreadCount = `-- name: GetUnreadCount :one
+SELECT COUNT(*)::int FROM messages m
+WHERE m.chat_id = $1
+AND m.sender_id != $2
+AND m.is_deleted = FALSE
+AND m.created_at > (
+    SELECT COALESCE(cm.last_read_at, '1970-01-01')
+    FROM chat_members cm
+    WHERE cm.chat_id = $1 AND cm.user_id = $2
+)
+`
+
+type GetUnreadCountParams struct {
+	ChatID   uuid.UUID `json:"chat_id"`
+	SenderID uuid.UUID `json:"sender_id"`
+}
+
+func (q *Queries) GetUnreadCount(ctx context.Context, arg GetUnreadCountParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, getUnreadCount, arg.ChatID, arg.SenderID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const getUserChats = `-- name: GetUserChats :many
@@ -926,6 +980,20 @@ type RevokeInviteLinkParams struct {
 
 func (q *Queries) RevokeInviteLink(ctx context.Context, arg RevokeInviteLinkParams) error {
 	_, err := q.db.ExecContext(ctx, revokeInviteLink, arg.Code, arg.ChatID)
+	return err
+}
+
+const setSlowMode = `-- name: SetSlowMode :exec
+UPDATE chats SET slow_mode = $2 WHERE id = $1
+`
+
+type SetSlowModeParams struct {
+	ID       uuid.UUID     `json:"id"`
+	SlowMode sql.NullInt32 `json:"slow_mode"`
+}
+
+func (q *Queries) SetSlowMode(ctx context.Context, arg SetSlowModeParams) error {
+	_, err := q.db.ExecContext(ctx, setSlowMode, arg.ID, arg.SlowMode)
 	return err
 }
 

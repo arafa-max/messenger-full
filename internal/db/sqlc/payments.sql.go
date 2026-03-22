@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -146,6 +147,30 @@ func (q *Queries) GetBotPayments(ctx context.Context, arg GetBotPaymentsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const getBusinessProfile = `-- name: GetBusinessProfile :one
+SELECT user_id, business_name, category, description, address, email, website, phone_public, working_hours, is_verified, created_at, updated_at FROM business_profiles WHERE user_id = $1
+`
+
+func (q *Queries) GetBusinessProfile(ctx context.Context, userID uuid.UUID) (BusinessProfile, error) {
+	row := q.db.QueryRowContext(ctx, getBusinessProfile, userID)
+	var i BusinessProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.BusinessName,
+		&i.Category,
+		&i.Description,
+		&i.Address,
+		&i.Email,
+		&i.Website,
+		&i.PhonePublic,
+		&i.WorkingHours,
+		&i.IsVerified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getChatLabels = `-- name: GetChatLabels :many
@@ -378,6 +403,64 @@ type UpdateSubscriptionCancelAtPeriodEndParams struct {
 func (q *Queries) UpdateSubscriptionCancelAtPeriodEnd(ctx context.Context, arg UpdateSubscriptionCancelAtPeriodEndParams) error {
 	_, err := q.db.ExecContext(ctx, updateSubscriptionCancelAtPeriodEnd, arg.UserID, arg.CancelAtPeriodEnd)
 	return err
+}
+
+const upsertBusinessProfile = `-- name: UpsertBusinessProfile :one
+INSERT INTO business_profiles (user_id, business_name, category, description, address, email, website, phone_public, working_hours)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (user_id) DO UPDATE SET
+    business_name = EXCLUDED.business_name,
+    category      = EXCLUDED.category,
+    description   = EXCLUDED.description,
+    address       = EXCLUDED.address,
+    email         = EXCLUDED.email,
+    website       = EXCLUDED.website,
+    phone_public  = EXCLUDED.phone_public,
+    working_hours = EXCLUDED.working_hours,
+    updated_at    = NOW()
+RETURNING user_id, business_name, category, description, address, email, website, phone_public, working_hours, is_verified, created_at, updated_at
+`
+
+type UpsertBusinessProfileParams struct {
+	UserID       uuid.UUID       `json:"user_id"`
+	BusinessName string          `json:"business_name"`
+	Category     string          `json:"category"`
+	Description  string          `json:"description"`
+	Address      string          `json:"address"`
+	Email        string          `json:"email"`
+	Website      string          `json:"website"`
+	PhonePublic  string          `json:"phone_public"`
+	WorkingHours json.RawMessage `json:"working_hours"`
+}
+
+func (q *Queries) UpsertBusinessProfile(ctx context.Context, arg UpsertBusinessProfileParams) (BusinessProfile, error) {
+	row := q.db.QueryRowContext(ctx, upsertBusinessProfile,
+		arg.UserID,
+		arg.BusinessName,
+		arg.Category,
+		arg.Description,
+		arg.Address,
+		arg.Email,
+		arg.Website,
+		arg.PhonePublic,
+		arg.WorkingHours,
+	)
+	var i BusinessProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.BusinessName,
+		&i.Category,
+		&i.Description,
+		&i.Address,
+		&i.Email,
+		&i.Website,
+		&i.PhonePublic,
+		&i.WorkingHours,
+		&i.IsVerified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertPremiumSettings = `-- name: UpsertPremiumSettings :exec

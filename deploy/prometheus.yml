@@ -1,0 +1,44 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    env: production
+    app: messenger
+
+# Alerting rules
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Alertmanager (раскомментировать когда настроишь)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # ── Go приложение ─────────────────────────────────────────
+  - job_name: messenger_app
+    static_configs:
+      - targets: ["app:8080"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # ── PostgreSQL exporter ───────────────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres_exporter:9187"]
+
+  # ── Redis exporter ────────────────────────────────────────
+  - job_name: redis
+    static_configs:
+      - targets: ["redis_exporter:9121"]
+
+  # ── Nginx exporter ────────────────────────────────────────
+  - job_name: nginx
+    static_configs:
+      - targets: ["nginx_exporter:9113"]
+
+  # ── Сам Prometheus ────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

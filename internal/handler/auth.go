@@ -36,11 +36,13 @@ func NewAuthHandler(sqlDB *sql.DB, cfg *config.Config, rdb *redis.Client) *AuthH
 
 // стало:
 type registerReq struct {
-	Username     string `json:"username" binding:"required,min=3,max=32"`
-	Email        string `json:"email" binding:"omitempty,email"`
-	Password     string `json:"password" binding:"required,min=8"`
-	PowChallenge string `json:"pow_challenge"`
-	PowNonce     string `json:"pow_nonce"`
+	Username      string `json:"username" binding:"required,min=3,max=32"`
+	Email         string `json:"email" binding:"omitempty,email"`
+	Password      string `json:"password" binding:"required,min=8"`
+	PowChallenge  string `json:"pow_challenge"`
+	PowNonce      string `json:"pow_nonce"`
+	BirthYear     int    `json:"birth_year" binding:"required,min=1900,max=2020"`
+	AcceptedTerms bool   `json:"accepted_terms" binding:"required"`
 }
 
 // @Summary Registration
@@ -57,43 +59,75 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	if !req.AcceptedTerms {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "terms_not_accepted",
+			"message": "You must accept Terms of Service to create an account",
+		})
+		return
+	}
+
+	// Проверка возраста 13+
+	currentYear := time.Now().Year()
+	age := currentYear - req.BirthYear
+	if age < 13 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "age_requirement",
+			"message": "You must be at least 13 years old",
+		})
+		return
+	}
+
 	if req.PowChallenge != "" {
 		if err := h.VerifyPoW(c, req.PowChallenge, req.PowNonce); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 	}
+
 	if _, err := h.q.GetUserByUsername(c, req.Username); err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "username already taken"})
 		return
 	}
+
 	if req.Email != "" {
 		if _, err := h.q.GetUserByEmail(c, sql.NullString{String: req.Email, Valid: true}); err == nil {
 			c.JSON(http.StatusConflict, gin.H{"error": "email already taken"})
 			return
 		}
 	}
+
 	hashed, err := auth.HashPassword(req.Password)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	termsTime := time.Now()
+	birthYear := int32(req.BirthYear)
+
 	user, err := h.q.CreateUser(c, db.CreateUserParams{
-		Username: req.Username,
-		Email:    sql.NullString{String: req.Email, Valid: req.Email != ""},
-		Password: hashed,
-		Language: sql.NullString{String: "ru", Valid: true},
+		Username:        req.Username,
+		Email:           sql.NullString{String: req.Email, Valid: req.Email != ""},
+		Password:        hashed,
+		Language:        sql.NullString{String: "ru", Valid: true},
+		BirthYear:       sql.NullInt32{Int32: birthYear, Valid: true},
+		AcceptedTerms:   sql.NullBool{Bool: req.AcceptedTerms, Valid: true},
+		TermsAcceptedAt: sql.NullTime{Time: termsTime, Valid: true},
 	})
 	if err != nil {
 		log.Printf("❌ CreateUser error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
 	}
+
 	tokens, err := h.issueTokens(c, user.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue tokens"})
 		return
 	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"user":   toSafeUser(user),
 		"tokens": tokens,
@@ -178,10 +212,8 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 	session, err := h.q.GetSessionByToken(c, req.RefreshToken)
-
 	log.Printf("🔍 session: %+v, err: %v", session, err)
-
-	if _, err := h.q.GetSessionByToken(c, req.RefreshToken); err != nil {
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "session expired or not found"})
 		return
 
@@ -367,4 +399,30 @@ func (h *AuthHandler) GetUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, safe)
+}
+
+// @Summary Accept Terms of Service
+// @Description Accept or re-accept Terms of Service
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/auth/accept-terms [post]
+func (h *AuthHandler) AcceptTerms(c *gin.Context) {
+    uid, ok := c.Get("user_id")
+    if !ok {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+        return
+    }
+    now := time.Now()
+    err := h.q.UpdateUserTerms(c, db.UpdateUserTermsParams{
+        ID:              uid.(uuid.UUID),
+        AcceptedTerms:   sql.NullBool{Bool: true, Valid: true},
+        TermsAcceptedAt: sql.NullTime{Time: now, Valid: true},
+    })
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update terms"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"message": "terms accepted"})
 }

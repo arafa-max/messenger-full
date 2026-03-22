@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log"
 	db "messenger/internal/db/sqlc"
+	"messenger/internal/ocr"
 	"messenger/internal/storage"
 	"time"
 )
@@ -13,15 +14,16 @@ type Worker struct {
 	q       *db.Queries
 	storage *storage.MinIOClient
 	sqlDB   *sql.DB // для media_search_index (не покрыт sqlc)
+	ocr     *ocr.Client
 }
 
 func New(q *db.Queries, s *storage.MinIOClient) *Worker {
-	return &Worker{q: q, storage: s}
+	return &Worker{q: q, storage: s, ocr: ocr.NewClient("rus+eng")}
 }
 
 // NewWithDB — используй этот конструктор если нужна индексация медиа (Block 10)
 func NewWithDB(q *db.Queries, s *storage.MinIOClient, sqlDB *sql.DB) *Worker {
-	return &Worker{q: q, storage: s, sqlDB: sqlDB}
+	return &Worker{q: q, storage: s, sqlDB: sqlDB, ocr: ocr.NewClient("rus+eng")}
 }
 
 func (w *Worker) Start(ctx context.Context) {

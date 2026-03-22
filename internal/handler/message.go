@@ -9,6 +9,7 @@ import (
 	"messenger/internal/store"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -128,7 +129,12 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
+	if req.Type == "text" || req.Type == "" {
+		if strings.TrimSpace(req.Content) == "" && (req.MediaID == nil || *req.MediaID == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "text or media required"})
+			return
+		}
+	}
 	params := db.CreateMessageParams{
 		ChatID:   chatID,
 		SenderID: senderID,
@@ -434,7 +440,7 @@ func (h *MessageHandler) Pin(c *gin.Context) {
 		return
 	}
 	if err := h.store.Pin(c, msgID, msg.ChatID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to pin message"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pin message"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "pinned"})
@@ -458,7 +464,7 @@ func (h *MessageHandler) Unpin(c *gin.Context) {
 		return
 	}
 	if err := h.store.Unpin(c, msgID, msg.ChatID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to pin message"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pin message"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "unpinned"})
@@ -478,7 +484,7 @@ func (h *MessageHandler) GetPinned(c *gin.Context) {
 	}
 	messages, err := h.store.GetPinned(c, chatID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to get pinned messages"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get pinned messages"})
 		return
 	}
 	result := make([]messageResponse, len(messages))
@@ -515,7 +521,7 @@ func (h *MessageHandler) AddReaction(c *gin.Context) {
 	}
 
 	if err := h.store.AddReaction(c, msgID, userID, req.Emoji); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to add reaction"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add reaction"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "reaction added"})
@@ -543,7 +549,7 @@ func (h *MessageHandler) RemoveReactions(c *gin.Context) {
 	}
 
 	if err := h.store.RemoveReactions(c, msgID, userID, req.Emoji); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to remove reaction"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove reaction"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "reaction removed"})
@@ -566,7 +572,7 @@ func (h *MessageHandler) MarkRead(c *gin.Context) {
 	userID := c.MustGet("user_id").(uuid.UUID)
 
 	if err := h.store.MarkRead(c, msgID, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to mark as read"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark as read"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "marked as read"})
@@ -587,7 +593,7 @@ func (h *MessageHandler) MarkChatRead(c *gin.Context) {
 	userID := c.MustGet("user_id").(uuid.UUID)
 
 	if err := h.store.MarkChatRead(c, ChatID, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to mark chat as read"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark chat as read"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "chat marked as read"})
@@ -608,7 +614,7 @@ func (h *MessageHandler) Typing(c *gin.Context) {
 	userID := c.MustGet("user_id").(uuid.UUID)
 
 	if err := h.store.SetTyping(c, chatID, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to set typing"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save message"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
@@ -631,7 +637,7 @@ func (h *MessageHandler) Save(c *gin.Context) {
 	userID := c.MustGet("user_id").(uuid.UUID)
 
 	if err := h.store.Save(c, userID, msgID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to set typing"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save message"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
@@ -661,7 +667,7 @@ func (h *MessageHandler) GetSaved(c *gin.Context) {
 	}
 	messages, err := h.store.GetSaved(c, userID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to get saved messages"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get saved messages"})
 		return
 	}
 	result := make([]messageResponse, len(messages))
@@ -700,7 +706,7 @@ func (h *MessageHandler) SetReminder(c *gin.Context) {
 
 	reminder, err := h.store.SetReminder(c, userID, msgID, req.RemindAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to set reminder"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set reminder"})
 		return
 	}
 	c.JSON(http.StatusCreated, reminderResponse{
@@ -750,7 +756,7 @@ func (h *MessageHandler) Search(c *gin.Context) {
 	}
 	messages, err := h.store.Search(c, chatID, query, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failded to search messages"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search messages"})
 		return
 	}
 	result := make([]messageResponse, len(messages))

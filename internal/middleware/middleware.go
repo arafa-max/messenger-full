@@ -22,12 +22,19 @@ func Auth(cfg *config.Config, redisClient ...*rdb.Client) gin.HandlerFunc {
 		cfg.JWT.RefreshDays,
 	)
 	return func(c *gin.Context) {
+		var tokenStr string
+
 		header := c.GetHeader("Authorization")
-		if header == "" || !strings.HasPrefix(header, "Bearer ") {
+		if header != "" && strings.HasPrefix(header, "Bearer ") {
+			tokenStr = strings.TrimPrefix(header, "Bearer ")
+		} else if q := c.Query("token"); q != "" {
+			// fallback для WebSocket (браузер не может передать заголовки)
+			tokenStr = q
+		} else {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
 			return
 		}
-		tokenStr := strings.TrimPrefix(header, "Bearer ")
+
 		claims, err := jwtMgr.ParseAccess(tokenStr)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
@@ -100,4 +107,10 @@ func Logger() gin.HandlerFunc {
 				" | " + latency.String() + "\n",
 		))
 	}
+}
+
+func GetUserID(c *gin.Context) uuid.UUID {
+	val, _ := c.Get("user_id")
+	id, _ := val.(uuid.UUID)
+	return id
 }

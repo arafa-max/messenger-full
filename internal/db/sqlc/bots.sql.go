@@ -13,9 +13,8 @@ import (
 )
 
 const createBot = `-- name: CreateBot :one
-
-INSERT INTO bots (owner_id, token, username, name, description, is_ai_enabled)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO bots (owner_id, user_id, token, username, name, description, is_ai_enabled)
+VALUES ($1, $1, $2, $3, $4, $5, $6)
 RETURNING id, owner_id, token, username, name, description, avatar_url, is_active, is_ai_enabled, webhook_url, webhook_secret, created_at
 `
 
@@ -28,7 +27,6 @@ type CreateBotParams struct {
 	IsAiEnabled bool      `json:"is_ai_enabled"`
 }
 
-// internal/db/query/bots.sql
 func (q *Queries) CreateBot(ctx context.Context, arg CreateBotParams) (Bot, error) {
 	row := q.db.QueryRowContext(ctx, createBot,
 		arg.OwnerID,

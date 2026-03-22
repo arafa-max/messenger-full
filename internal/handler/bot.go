@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"messenger/internal/bot"
@@ -26,8 +27,8 @@ func NewBotHandler(queries *db.Queries, dispatcher *bot.Dispatcher) *BotHandler 
 
 // POST /bots — создать бота
 func (h *BotHandler) CreateBot(c *gin.Context) {
-	ownerID, err := uuid.Parse(c.GetString("user_id"))
-	if err != nil {
+	ownerID, ok := getUserID(c) // FIX: используем getUserID вместо GetString
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
@@ -43,7 +44,6 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 		return
 	}
 
-	// Генерируем токен: botID + random
 	token := "bot_" + uuid.New().String()
 
 	bot, err := h.queries.CreateBot(c, db.CreateBotParams{
@@ -55,20 +55,21 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 		IsAiEnabled: req.IsAIEnabled,
 	})
 	if err != nil {
+		log.Printf("❌ CreateBot error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create bot"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"bot":   bot,
-		"token": token, // показываем токен только при создании
+		"token": token,
 	})
 }
 
 // GET /bots — мои боты
 func (h *BotHandler) GetMyBots(c *gin.Context) {
-	ownerID, err := uuid.Parse(c.GetString("user_id"))
-	if err != nil {
+	ownerID, ok := getUserID(c) // FIX
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
@@ -84,8 +85,8 @@ func (h *BotHandler) GetMyBots(c *gin.Context) {
 
 // DELETE /bots/:id — деактивировать бота
 func (h *BotHandler) DeactivateBot(c *gin.Context) {
-	ownerID, err := uuid.Parse(c.GetString("user_id"))
-	if err != nil {
+	ownerID, ok := getUserID(c) // FIX
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
@@ -147,7 +148,6 @@ func (h *BotHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	// Проверяем secret если установлен
 	if bot.WebhookSecret != "" {
 		secret := c.GetHeader("X-Bot-Secret")
 		if secret != bot.WebhookSecret {
@@ -166,18 +166,15 @@ func (h *BotHandler) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	// Сохраняем update (дедупликация по update_id)
 	_ = h.queries.SaveBotUpdate(c, db.SaveBotUpdateParams{
 		BotID:    bot.ID,
 		UpdateID: update.UpdateID,
 		Type:     update.Type,
 		Payload:  update.Payload,
 	})
-	// Диспетчеризация асинхронно — не задерживаем ответ клиенту
 	go h.dispatcher.Dispatch(context.Background(), bot, update.Payload)
 
 	c.Status(http.StatusOK)
-
 }
 
 // GET /bots/:id/commands — список команд бота

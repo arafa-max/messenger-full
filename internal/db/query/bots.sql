@@ -1,8 +1,8 @@
--- internal/db/query/bots.sql
+
 
 -- name: CreateBot :one
-INSERT INTO bots (owner_id, token, username, name, description, is_ai_enabled)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO bots (owner_id, user_id, token, username, name, description, is_ai_enabled)
+VALUES ($1, $1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: GetBotByToken :one

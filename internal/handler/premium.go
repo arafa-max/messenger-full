@@ -11,7 +11,6 @@ import (
 	db "messenger/internal/db/sqlc"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/stripe/stripe-go/v76"
 	portalsession "github.com/stripe/stripe-go/v76/billingportal/session"
 	"github.com/stripe/stripe-go/v76/customer"
@@ -22,7 +21,7 @@ import (
 type PremiumHandler struct {
 	queries       *db.Queries
 	webhookSecret string
-	priceID       string // Stripe Price ID для Premium плана
+	priceID       string
 }
 
 func NewPremiumHandler(queries *db.Queries, cfg config.StripeConfig) *PremiumHandler {
@@ -34,15 +33,15 @@ func NewPremiumHandler(queries *db.Queries, cfg config.StripeConfig) *PremiumHan
 	}
 }
 
-// POST /premium/subscribe — создать подписку
+// POST /premium/subscribe
 func (h *PremiumHandler) Subscribe(c *gin.Context) {
-	userID, err := uuid.Parse(c.GetString("user_id"))
-	if err != nil {
+	// FIX: используем getUserID
+	userID, ok := getUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	// Получаем или создаём Stripe Customer
 	user, err := h.queries.GetUserByID(c, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found"})
@@ -55,7 +54,6 @@ func (h *PremiumHandler) Subscribe(c *gin.Context) {
 	if sub.StripeCustomerID != "" {
 		customerID = sub.StripeCustomerID
 	} else {
-		// Создаём нового Stripe Customer
 		cust, err := customer.New(&stripe.CustomerParams{
 			Email: stripe.String(user.Email.String),
 			Metadata: map[string]string{
@@ -69,7 +67,6 @@ func (h *PremiumHandler) Subscribe(c *gin.Context) {
 		customerID = cust.ID
 	}
 
-	// Создаём подписку
 	subParams := &stripe.SubscriptionParams{
 		Customer: stripe.String(customerID),
 		Items: []*stripe.SubscriptionItemsParams{
@@ -85,7 +82,6 @@ func (h *PremiumHandler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	// Сохраняем в БД
 	err = h.queries.UpsertSubscription(c, db.UpsertSubscriptionParams{
 		UserID:           userID,
 		StripeCustomerID: customerID,
@@ -98,10 +94,8 @@ func (h *PremiumHandler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	// Возвращаем client_secret для фронтенда (Stripe.js)
 	clientSecret := ""
-	if stripeSub.LatestInvoice != nil &&
-		stripeSub.LatestInvoice.PaymentIntent != nil {
+	if stripeSub.LatestInvoice != nil && stripeSub.LatestInvoice.PaymentIntent != nil {
 		clientSecret = stripeSub.LatestInvoice.PaymentIntent.ClientSecret
 	}
 
@@ -112,10 +106,11 @@ func (h *PremiumHandler) Subscribe(c *gin.Context) {
 	})
 }
 
-// DELETE /premium/subscribe — отменить подписку
+// DELETE /premium/subscribe
 func (h *PremiumHandler) Cancel(c *gin.Context) {
-	userID, err := uuid.Parse(c.GetString("user_id"))
-	if err != nil {
+	// FIX: используем getUserID
+	userID, ok := getUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
@@ -126,7 +121,6 @@ func (h *PremiumHandler) Cancel(c *gin.Context) {
 		return
 	}
 
-	// Отменяем в конце периода (не сразу)
 	params := &stripe.SubscriptionParams{
 		CancelAtPeriodEnd: stripe.Bool(true),
 	}
@@ -144,10 +138,11 @@ func (h *PremiumHandler) Cancel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "subscription will be canceled at period end"})
 }
 
-// GET /premium/status — статус подписки
+// GET /premium/status
 func (h *PremiumHandler) Status(c *gin.Context) {
-	userID, err := uuid.Parse(c.GetString("user_id"))
-	if err != nil {
+	// FIX: используем getUserID
+	userID, ok := getUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
@@ -169,10 +164,11 @@ func (h *PremiumHandler) Status(c *gin.Context) {
 	})
 }
 
-// POST /premium/portal — Stripe billing portal (управление картой)
+// POST /premium/portal
 func (h *PremiumHandler) BillingPortal(c *gin.Context) {
-	userID, err := uuid.Parse(c.GetString("user_id"))
-	if err != nil {
+	// FIX: используем getUserID
+	userID, ok := getUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
@@ -203,7 +199,7 @@ func (h *PremiumHandler) BillingPortal(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"url": ps.URL})
 }
 
-// POST /premium/webhook — Stripe webhook для подписок
+// POST /premium/webhook
 func (h *PremiumHandler) Webhook(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -218,7 +214,6 @@ func (h *PremiumHandler) Webhook(c *gin.Context) {
 	}
 
 	switch event.Type {
-
 	case "customer.subscription.updated", "customer.subscription.created":
 		var s stripe.Subscription
 		if err := json.Unmarshal(event.Data.Raw, &s); err != nil {

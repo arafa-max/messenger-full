@@ -78,3 +78,21 @@ SELECT * FROM chat_labels WHERE user_id = $1 ORDER BY created_at DESC;
 
 -- name: DeleteChatLabel :exec
 DELETE FROM chat_labels WHERE id = $1 AND user_id = $2;
+
+-- name: GetBusinessProfile :one
+SELECT * FROM business_profiles WHERE user_id = $1;
+
+-- name: UpsertBusinessProfile :one
+INSERT INTO business_profiles (user_id, business_name, category, description, address, email, website, phone_public, working_hours)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (user_id) DO UPDATE SET
+    business_name = EXCLUDED.business_name,
+    category      = EXCLUDED.category,
+    description   = EXCLUDED.description,
+    address       = EXCLUDED.address,
+    email         = EXCLUDED.email,
+    website       = EXCLUDED.website,
+    phone_public  = EXCLUDED.phone_public,
+    working_hours = EXCLUDED.working_hours,
+    updated_at    = NOW()
+RETURNING *;

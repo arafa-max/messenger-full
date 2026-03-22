@@ -100,3 +100,18 @@ RETURNING *;
 INSERT INTO stickers (pack_id, media_id, emoji, position, format, lottie_url)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
+
+-- name: GetPremiumStickerPacks :many
+SELECT id, name, thumb_url, is_official, is_premium, created_at
+FROM sticker_packs
+WHERE is_premium = TRUE
+ORDER BY created_at DESC;
+
+-- name: GetPublicStickerPacksForUser :many
+SELECT
+    sp.id, sp.name, sp.thumb_url, sp.is_official, sp.is_premium, sp.created_at,
+    CASE WHEN usp.user_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_installed
+FROM sticker_packs sp
+LEFT JOIN user_sticker_packs usp ON usp.pack_id = sp.id AND usp.user_id = sqlc.arg(user_id)
+WHERE sp.is_premium = FALSE OR sqlc.arg(is_premium)::boolean = TRUE
+ORDER BY sp.is_official DESC, sp.created_at DESC;

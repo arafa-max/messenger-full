@@ -156,3 +156,24 @@ WHERE metadata->>'community_id' = $1::text AND is_deleted = FALSE;
 
 -- name: RemoveChatFromCommunity :exec
 UPDATE chats SET metadata = metadata - 'community_id' WHERE id = $1;
+
+-- name: GetUnreadCount :one
+SELECT COUNT(*)::int FROM messages m
+WHERE m.chat_id = $1
+AND m.sender_id != $2
+AND m.is_deleted = FALSE
+AND m.created_at > (
+    SELECT COALESCE(cm.last_read_at, '1970-01-01')
+    FROM chat_members cm
+    WHERE cm.chat_id = $1 AND cm.user_id = $2
+);
+
+
+-- name: GetMutedChats :many
+SELECT cm.chat_id FROM chat_members cm
+WHERE cm.user_id = $1
+AND cm.muted_until IS NOT NULL
+AND cm.muted_until > NOW();
+
+-- name: SetSlowMode :exec
+UPDATE chats SET slow_mode = $2 WHERE id = $1;

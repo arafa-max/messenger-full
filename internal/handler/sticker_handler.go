@@ -32,14 +32,30 @@ func (h *StickerHandler) GetMyPacks(c *gin.Context) {
 }
 
 func (h *StickerHandler) GetPublicPacks(c *gin.Context) {
-	rows, err := h.queries.GetPublicStickerPacks(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	userID := c.MustGet("user_id").(uuid.UUID)
+
+	isPremium := false
+	if sub, err := h.queries.GetSubscriptionByUserID(c, userID); err == nil && sub.Status == "active" {
+		isPremium = true
+	}
+
+	if isPremium {
+		packs, err := h.queries.GetPremiumStickerPacks(c)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get packs"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"packs": packs})
 		return
 	}
-	c.JSON(http.StatusOK, rows)
-}
 
+	packs, err := h.queries.GetPublicStickerPacks(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get packs"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"packs": packs})
+}
 func (h *StickerHandler) InstallPack(c *gin.Context) {
 	userID := c.MustGet("user_id").(uuid.UUID)
 	packID, err := uuid.Parse(c.Param("id"))
@@ -117,9 +133,10 @@ func (h *StickerHandler) SearchStickers(c *gin.Context) {
 // SuggestStickers godoc
 // @Summary      Inline suggestions: стикеры по эмодзи или тексту
 // @Description  Два режима:
-//               1. Вводишь эмодзи 😂 → сразу ищем стикеры по эмодзи
-//               2. Вводишь текст "смеюсь" → находим эмодзи (😂) → ищем стикеры
-//               Возвращает пустой массив если ничего не найдено.
+//  1. Вводишь эмодзи 😂 → сразу ищем стикеры по эмодзи
+//  2. Вводишь текст "смеюсь" → находим эмодзи (😂) → ищем стикеры
+//     Возвращает пустой массив если ничего не найдено.
+//
 // @Tags         stickers
 // @Security     BearerAuth
 // @Param        q query string true "Текст или эмодзи"
@@ -171,7 +188,7 @@ func (h *StickerHandler) SuggestStickers(c *gin.Context) {
 
 // SuggestResponse — ответ с найденными стикерами и эмодзи-триггером
 type SuggestResponse struct {
-	Emoji    string                    `json:"emoji"`    // какой эмодзи сматчился
+	Emoji    string                     `json:"emoji"`    // какой эмодзи сматчился
 	Stickers []db.GetStickersByEmojiRow `json:"stickers"` // стикеры
 }
 
@@ -199,6 +216,6 @@ func isEmoji(r rune) bool {
 		(r >= 0x1F300 && r <= 0x1F5FF) || // Misc symbols
 		(r >= 0x1F680 && r <= 0x1F6FF) || // Transport
 		(r >= 0x1F900 && r <= 0x1F9FF) || // Supplemental
-		(r >= 0x2600 && r <= 0x26FF) ||   // Misc symbols
-		(r >= 0x2700 && r <= 0x27BF)      // Dingbats
+		(r >= 0x2600 && r <= 0x26FF) || // Misc symbols
+		(r >= 0x2700 && r <= 0x27BF) // Dingbats
 }
