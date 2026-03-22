@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Скачиваем piper бинарник
+RUN wget -q https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
+    && tar -xzf piper_linux_x86_64.tar.gz \
+    && mv piper/piper /usr/local/bin/piper \
+    && rm -rf piper piper_linux_x86_64.tar.gz
+
+RUN useradd -m -u 1000 piper
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Папка для моделей (монтируется как volume)
+RUN mkdir -p models
+
+COPY main.py .
+
+RUN chown -R piper:piper /app
+USER piper
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:9301/health')"
+
+EXPOSE 9301
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9301"]
