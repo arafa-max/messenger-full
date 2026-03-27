@@ -5,7 +5,7 @@ RUN apk add --no-cache git ca-certificates tzdata wget
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go env -w GOPROXY=direct GONOSUMCHECK=*
+RUN go env -w GOPROXY=direct GONOSUMDB=*
 RUN go mod download
 COPY . .
 
