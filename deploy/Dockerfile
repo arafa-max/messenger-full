@@ -4,12 +4,16 @@ RUN apk add --no-cache git ca-certificates tzdata wget
 
 WORKDIR /app
 
+COPY go.mod go.sum ./
+RUN go env -w GOPROXY=direct GONOSUMCHECK=* GOFLAGS=-mod=mod && go mod download
+
 COPY . .
 
 RUN go install github.com/swaggo/swag/cmd/swag@latest
 RUN swag init -g ./cmd/server/main.go -o ./docs --parseDependency --parseInternal
+
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -mod=vendor \
+    go build \
     -ldflags="-w -s -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" \
     -o /bin/server ./cmd/server
 
