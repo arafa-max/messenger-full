@@ -1295,7 +1295,7 @@ func (h *ChatHandler) GetCommunityChats(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path string true "Community ID"
 // @Param chat_id path string true "Chat ID"
-// @Router /chats/{id}/community/chats/{chat_id} [del
+// @Router /chats/{id}/community/chats/{chat_id} [delete]
 func (h *ChatHandler) RemoveFromCommunity(c *gin.Context) {
 	communityID, myID, err := parseChatAndCaller(c)
 	if err != nil {
