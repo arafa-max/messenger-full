@@ -9,8 +9,13 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
+RUN go install github.com/swaggo/swag/cmd/swag@latest
+
 # Исходники
 COPY . .
+
+# Генерируем docs перед билдом
+RUN swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
 
 # Билд: strip debug info (-w -s), версия из git tag
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
