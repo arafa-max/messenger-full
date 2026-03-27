@@ -5,8 +5,8 @@ RUN apk add --no-cache git ca-certificates tzdata wget
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go env -w GOPROXY=direct GONOSUMCHECK=* GOFLAGS=-mod=mod && go mod download
-
+RUN go env -w GOPROXY=direct GONOSUMCHECK=*
+RUN go mod download
 COPY . .
 
 RUN go install github.com/swaggo/swag/cmd/swag@latest
