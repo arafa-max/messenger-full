@@ -7,6 +7,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go env -w GOPROXY=direct GONOSUMDB=*
 RUN go mod download
+
 COPY . .
 
 RUN go install github.com/swaggo/swag/cmd/swag@latest
@@ -17,9 +18,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     -ldflags="-w -s -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" \
     -o /bin/server ./cmd/server
 
-RUN wget -qO /bin/migrate \
-    https://github.com/pressly/goose/releases/download/v3.24.3/goose_linux_amd64 \
-    && chmod +x /bin/migrate
+RUN go install github.com/pressly/goose/v3/cmd/goose@latest
+RUN cp $(go env GOPATH)/bin/goose /bin/migrate
 
 # ── Stage 2: Runtime ──────────────────────────────────────────
 FROM gcr.io/distroless/static-debian12
