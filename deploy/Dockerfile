@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     -o /bin/server ./cmd/server
 
 RUN wget -qO /bin/migrate \
-    https://github.com/pressly/goose/releases/download/v3.22.0/goose_linux_amd64 \
+    https://github.com/pressly/goose/releases/download/v3.24.3/goose_linux_amd64 \
     && chmod +x /bin/migrate
 
 # ── Stage 2: Runtime ──────────────────────────────────────────
