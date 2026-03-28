@@ -22,15 +22,17 @@ RUN go install github.com/pressly/goose/v3/cmd/goose@latest
 RUN cp $(go env GOPATH)/bin/goose /bin/migrate
 
 # ── Stage 2: Runtime ──────────────────────────────────────────
-FROM gcr.io/distroless/static-debian12
+FROM alpine:latest
 
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /bin/server /server
 COPY --from=builder /bin/migrate /migrate
 COPY --from=builder /app/migrations /migrations
+COPY entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 8080
 
-ENTRYPOINT ["/server"]
+ENTRYPOINT ["/entrypoint.sh"]
