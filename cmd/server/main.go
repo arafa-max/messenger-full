@@ -48,7 +48,6 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/pressly/goose/v3"
-_ "github.com/pressly/goose/v3/database/postgres"
 )
 
 var Version = "dev"
