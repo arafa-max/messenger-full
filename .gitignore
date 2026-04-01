@@ -32,7 +32,6 @@ C:/minio-data/
 *.log
 
 # Swagger (генерируется автоматически)
-docs/
 
 # OS
 .DS_Store

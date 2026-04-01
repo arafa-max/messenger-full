@@ -1,0 +1,985 @@
+basePath: /api/v1
+definitions:
+  db.MessageReminder:
+    properties:
+      created_at:
+        $ref: '#/definitions/sql.NullTime'
+      id:
+        type: string
+      is_sent:
+        $ref: '#/definitions/sql.NullBool'
+      message_id:
+        type: string
+      remind_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  handler.chatResponse:
+    properties:
+      avatar_url:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      invite_link:
+        type: string
+      is_public:
+        type: boolean
+      member_count:
+        type: integer
+      name:
+        type: string
+      owner_id:
+        type: string
+      type:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.createDMReq:
+    properties:
+      user_id:
+        type: string
+    required:
+    - user_id
+    type: object
+  handler.createGroupReq:
+    properties:
+      is_public:
+        type: boolean
+      member_ids:
+        items:
+          type: string
+        type: array
+      name:
+        maxLength: 128
+        minLength: 1
+        type: string
+    required:
+    - name
+    type: object
+  handler.editMessageReq:
+    properties:
+      content:
+        type: string
+      format:
+        type: string
+    required:
+    - content
+    type: object
+  handler.forwardReq:
+    properties:
+      to_chat_id:
+        type: string
+    required:
+    - to_chat_id
+    type: object
+  handler.loginReq:
+    properties:
+      login:
+        type: string
+      password:
+        type: string
+    required:
+    - login
+    - password
+    type: object
+  handler.memberResponse:
+    properties:
+      chat_id:
+        type: string
+      joined_at:
+        type: string
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
+  handler.messageResponse:
+    properties:
+      chat_id:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      format:
+        type: string
+      forward_chat_id:
+        type: string
+      forward_sender_id:
+        type: string
+      forwarded_from_id:
+        type: string
+      id:
+        type: string
+      is_edited:
+        type: boolean
+      is_pinned:
+        type: boolean
+      is_spoiler:
+        type: boolean
+      quoted_text:
+        type: string
+      reply_to_id:
+        type: string
+      scheduled_at:
+        type: string
+      sender_id:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  handler.reactReq:
+    properties:
+      emoji:
+        type: string
+    required:
+    - emoji
+    type: object
+  handler.refreshReq:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  handler.registerReq:
+    properties:
+      email:
+        type: string
+      password:
+        minLength: 8
+        type: string
+      username:
+        maxLength: 32
+        minLength: 3
+        type: string
+    required:
+    - email
+    - password
+    - username
+    type: object
+  handler.reminderReq:
+    properties:
+      remind_at:
+        type: string
+    required:
+    - remind_at
+    type: object
+  handler.safeUser:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      is_online:
+        type: boolean
+      username:
+        type: string
+    type: object
+  handler.sendMessageReq:
+    properties:
+      content:
+        type: string
+      expires_at:
+        type: string
+      format:
+        type: string
+      is_spoiler:
+        type: boolean
+      reply_to_id:
+        type: string
+      scheduled_at:
+        type: string
+      topic_id:
+        type: string
+      type:
+        type: string
+    required:
+    - type
+    type: object
+  handler.tokenPair:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      refresh_token:
+        type: string
+    type: object
+  sql.NullBool:
+    properties:
+      bool:
+        type: boolean
+      valid:
+        description: Valid is true if Bool is not NULL
+        type: boolean
+    type: object
+  sql.NullTime:
+    properties:
+      time:
+        type: string
+      valid:
+        description: Valid is true if Time is not NULL
+        type: boolean
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Best messenger
+  title: Messenger API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: data logins
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.loginReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Login
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.refreshReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - auth
+  /auth/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.safeUser'
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: current user
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Refersh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.refreshReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.tokenPair'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Update token
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: data registraions
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.registerReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Registration
+      tags:
+      - auth
+  /chats:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.chatResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get my chats
+      tags:
+      - chats
+  /chats/{id}:
+    get:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.chatResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get chat by ID
+      tags:
+      - chats
+  /chats/{id}/leave:
+    post:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Leave chat
+      tags:
+      - chats
+  /chats/{id}/members:
+    get:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.memberResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get chat members
+      tags:
+      - chats
+  /chats/{id}/messages:
+    get:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get chat messages
+      tags:
+      - messages
+    post:
+      consumes:
+      - application/json
+      description: Send a new message to a chat
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Message data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.sendMessageReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.messageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send message
+      tags:
+      - messages
+  /chats/{id}/messages/search:
+    get:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Search messages
+      tags:
+      - messages
+  /chats/{id}/pinned:
+    get:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.messageResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get pinned messages
+      tags:
+      - messages
+  /chats/{id}/read:
+    post:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Mark chat as read
+      tags:
+      - messages
+  /chats/{id}/typing:
+    post:
+      parameters:
+      - description: Chat ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Typing indicator
+      tags:
+      - messages
+  /chats/dm:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target user
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createDMReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.chatResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create or get private chat (DM)
+      tags:
+      - chats
+  /chats/group:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Group data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createGroupReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.chatResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create group chat
+      tags:
+      - chats
+  /messages/{id}:
+    delete:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete message for everyone
+      tags:
+      - messages
+    put:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New content
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.editMessageReq'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.messageResponse'
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Edit message
+      tags:
+      - messages
+  /messages/{id}/forward:
+    post:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Target chat
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.forwardReq'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.messageResponse'
+      security:
+      - BearerAuth: []
+      summary: Forward message
+      tags:
+      - messages
+  /messages/{id}/me:
+    delete:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete message for me
+      tags:
+      - messages
+  /messages/{id}/pin:
+    delete:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Unpin message
+      tags:
+      - messages
+    post:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Pin message
+      tags:
+      - messages
+  /messages/{id}/react:
+    delete:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Emoji
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.reactReq'
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Remove reaction
+      tags:
+      - messages
+    post:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Emoji
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.reactReq'
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Add reaction
+      tags:
+      - messages
+  /messages/{id}/read:
+    post:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Mark message as read
+      tags:
+      - messages
+  /messages/{id}/reminder:
+    post:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Reminder time
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.reminderReq'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/db.MessageReminder'
+      security:
+      - BearerAuth: []
+      summary: Set reminder
+      tags:
+      - messages
+  /messages/{id}/save:
+    post:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Save message
+      tags:
+      - messages
+  /messages/saved:
+    get:
+      parameters:
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.messageResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get saved messages
+      tags:
+      - messages
+  /users/{username}:
+    get:
+      parameters:
+      - description: Username
+        in: path
+        name: username
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.safeUser'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get user by username
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
