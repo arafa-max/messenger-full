@@ -18,10 +18,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	_ "messenger/docs"
+	_ "messenger/cmd/server/docs"
 	"messenger/pkg/logger"
-
 	"messenger/internal/ai"
 	"messenger/internal/bot"
 	"messenger/internal/config"
