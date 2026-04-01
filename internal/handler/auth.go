@@ -404,10 +404,11 @@ func (h *AuthHandler) GetUser(c *gin.Context) {
 // @Summary Accept Terms of Service
 // @Description Accept or re-accept Terms of Service
 // @Tags auth
+// @Security BearerAuth
 // @Accept json
 // @Produce json
 // @Success 200 {object} map[string]interface{}
-// @Router /api/v1/auth/accept-terms [post]
+// @Router /auth/accept-terms [post]
 func (h *AuthHandler) AcceptTerms(c *gin.Context) {
     uid, ok := c.Get("user_id")
     if !ok {

@@ -47,6 +47,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"github.com/pressly/goose/v3"
+_ "github.com/pressly/goose/v3/database/postgres"
 )
 
 var Version = "dev"
@@ -80,6 +82,11 @@ func main() {
 	defer sqlDB.Close()
 
 	queries := db.New(sqlDB)
+
+	if err := goose.Up(sqlDB, "migrations"); err != nil {
+    	log.Fatalf("❌ migrations: %v", err)
+	}
+	log.Println("✅ migrations applied")
 
 	// ══════════════════════════════════════════
 	// 3. REDIS
